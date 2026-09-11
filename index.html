@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <meta name="theme-color" content="#172422" />
+    <title>Copperline — 城市自由漫游</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game"></canvas>
+      <div class="film-grain"></div>
+      <header>
+        <a class="wordmark" href="#"
+          >COPPER<span>LINE</span><small>自由漫游 / VOL. 01</small></a
+        >
+        <div class="district">
+          <i></i><span id="district">PALM GROVE</span
+          ><small>18:42 · GOLDEN HOUR</small>
+        </div>
+        <button id="pause" class="icon-button" aria-label="暂停游戏">Ⅱ</button>
+      </header>
+      <div id="hud">
+        <div class="retro-clock">19:19</div>
+        <div class="retro-bars"><span></span><i id="ammo-bar"></i></div>
+        <div class="wallet">
+          <small>街头拾金</small
+          ><span><b>◈</b> <strong id="coins">000</strong></span
+          ><em id="pickup"></em>
+        </div>
+        <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
+        <div id="toast"></div>
+        <aside class="map-panel">
+          <canvas id="map" width="220" height="220"></canvas>
+          <div class="map-meta">
+            <span id="location">BLOCK 00 / 00</span><b>N ↑</b>
+          </div>
+        </aside>
+        <div class="mission">
+          <span class="eyebrow">THE CITY IS YOURS</span>
+          <h2 id="mission-title">回到街头。</h2>
+          <p id="mission-copy">找到街边的车，沿着金币探索这座城市。</p>
+          <div class="progress"><i id="progress"></i></div>
+          <small id="mission-progress">探索目标 · 收集 20 枚金币</small>
+        </div>
+        <aside class="equipment">
+          <span class="eyebrow" id="equipment-label">MR-17 / BLACKWATER</span>
+          <div id="weapon-status">
+            <strong id="ammo">30</strong><span>/ ∞</span><i>▰▰▰</i>
+          </div>
+          <div id="drive-status" hidden>
+            <strong id="speed">0</strong><span>KM/H</span><b id="gear">N</b>
+          </div>
+          <small id="equipment-hint">R 换弹 · 右键瞄准</small>
+        </aside>
+        <div id="interaction"></div>
+        <footer>
+          <div id="controls">
+            <kbd>W A S D</kbd> 移动 <kbd>SHIFT</kbd> 跑步 <kbd>F</kbd> 上车
+            <kbd>鼠标</kbd> 瞄准 / 射击
+          </div>
+          <span id="perf">WEBGL · LIVE CITY</span>
+        </footer>
+      </div>
+      <section id="menu">
+        <div class="menu-card">
+          <div class="eyebrow">AN OPEN-WORLD BROWSER EXPERIMENT</div>
+          <h1>夕阳下，<br />再兜一<span>圈。</span></h1>
+          <p>发动引擎，跟着金币向前。<br />一座在你脚下不断生长的城市。</p>
+          <div class="menu-tags">
+            <span>第三人称</span><span>自由驾驶</span
+            ><span>BLACKWATER 枪械</span>
+          </div>
+          <button id="start">进入街区 <span>↗</span></button>
+          <div class="menu-bottom">
+            <label
+              >世界种子
+              <input
+                id="seed"
+                value="COPPER-1987"
+                maxlength="32"
+                aria-label="世界种子" /></label
+            ><small id="loading">正在装载街区…</small>
+          </div>
+        </div>
+        <div class="edition">
+          <span>01 / COPPERLINE</span><b>PALM GROVE</b>
+          <p>一辆车。一把枪。无限街角。</p>
+        </div>
+      </section>
+      <section id="paused" hidden>
+        <div class="pause-card">
+          <span class="eyebrow">TAKE A BREATHER</span>
+          <h2>城市等你回来。</h2>
+          <p>
+            WASD 移动 / 驾驶 · F 上下车<br />左键射击 · 右键瞄准 · R 换弹<br />空格跳跃
+            / 手刹 · V 重置位置 · M 静音
+          </p>
+          <p id="lock-status" hidden role="alert">
+            浏览器没有允许锁定鼠标。点击下方按钮重试；若仍失败，请在 Chrome 或
+            Edge 打开 http://localhost:5173/。
+          </p>
+          <button id="resume">继续漫游 ↗</button
+          ><button id="restart" class="secondary">重新开始</button
+          ><small>退出鼠标锁定会暂停游戏</small>
+        </div>
+      </section>
+      <div id="fatal" hidden></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
