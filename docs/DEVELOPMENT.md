@@ -22,6 +22,8 @@ npm run preview
 
 | 测试 | 关注内容 |
 | --- | --- |
+| [targeting.test.ts](../tests/targeting.test.ts) | 枪口遮挡、射程限制、可复现散布及相机位置保护 |
+| [presentation.test.ts](../tests/presentation.test.ts) | HUD 模式呈现、商店价格可用状态与渲染无购买副作用 |
 | [game.test.ts](../tests/game.test.ts) | 确定性布局、道路空间、金币可达性、扫掠拾取、武器时序、Rapier CCD |
 | [world-plan.test.ts](../tests/world-plan.test.ts) | 道路连通、导航、桥面碰撞、地形接缝、地标避让 |
 | [population.test.ts](../tests/population.test.ts) | 区域差异、车流、接管、NPC 命中身份、伤害、掉落、流式边界 |
@@ -53,8 +55,9 @@ npm run preview
 | 地理、道路、建筑布局 | generation | landscape 碰撞、atlas 导航、population 路径 |
 | 区块模型和资源 | world / landscape | 卸载、共享资源、负坐标与原点平移 |
 | NPC / 车流 | population | 身份映射、接管、回访、刚体数量 |
-| 武器参数与购买 | inventory / combat | Game 命中逻辑、armory 呈现、装备面板 |
+| 武器参数与购买 | inventory / combat | targeting 命中计算、Game 伤害结果、armory 呈现、equipment-panel |
 | 镜头 | camera-rig / Game.updateCamera | 避障、第一人称、连续射击、车辆视角 |
+| HUD 与装备列表 | hud / equipment-panel | 数据契约、模式显示、余额与弹药显示 |
 | 输入、菜单、地图或装备模式 | Game.bind 与模式方法 / atlas | 清空输入、Pointer Lock 失败与返回恢复 |
 
 提交前运行与改动相关的测试及构建；涉及真实交互再做浏览器检查。记录检查覆盖的边界，避免把构建成功写成游玩验收。新增系统也应同步更新架构文档中的所有权、坐标转换和重置规则。

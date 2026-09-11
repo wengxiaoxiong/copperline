@@ -1,7 +1,8 @@
 // MR-17 timing and recoil adapted from BLACKWATER, MIT.
 // Third-person targeting and independent weapon state by Copperline.
 export class WeaponState {
-  ammo = 30;
+  ammo: number;
+  constructor(public spec = { capacity: 30, interval: 0.105, reload: 2.05 }) { this.ammo = spec.capacity; }
   cooldown = 0;
   reloadTime = 0;
   recoil = 0;
@@ -11,12 +12,12 @@ export class WeaponState {
     this.recoil = Math.max(0, this.recoil - dt * 7);
     if (this.reloadTime > 0) {
       this.reloadTime = Math.max(0, this.reloadTime - dt);
-      if (this.reloadTime === 0) this.ammo = 30;
+      if (this.reloadTime === 0) this.ammo = this.spec.capacity;
     }
   }
   reload() {
-    if (this.ammo === 30 || this.reloadTime > 0) return false;
-    this.reloadTime = 2.05;
+    if (this.ammo === this.spec.capacity || this.reloadTime > 0) return false;
+    this.reloadTime = this.spec.reload;
     return true;
   }
   fire(sprinting = false) {
@@ -25,14 +26,14 @@ export class WeaponState {
       this.reload();
       return false;
     }
-    this.cooldown = 0.105;
+    this.cooldown = this.spec.interval;
     this.ammo--;
     this.recoil = 1;
     this.shots++;
     return true;
   }
   reset() {
-    this.ammo = 30;
+    this.ammo = this.spec.capacity;
     this.cooldown = 0;
     this.reloadTime = 0;
     this.recoil = 0;

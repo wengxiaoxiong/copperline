@@ -22,7 +22,7 @@
       </header>
       <div id="hud">
         <div class="retro-clock">19:19</div>
-        <div class="retro-bars"><span></span><i id="ammo-bar"></i></div>
+        <div class="retro-bars"><span id="health-bar"></span><i id="ammo-bar"></i></div>
         <div class="wallet">
           <small>街头拾金</small
           ><span><b>◈</b> <strong id="coins">000</strong></span
@@ -66,10 +66,10 @@
         <div class="menu-card">
           <div class="eyebrow">AN OPEN-WORLD BROWSER EXPERIMENT</div>
           <h1>夕阳下，<br />再兜一<span>圈。</span></h1>
-          <p>发动引擎，跟着金币向前。<br />一座在你脚下不断生长的城市。</p>
+          <p>从山城开到海边，从街巷穿过港口。<br />每一辆车，都可以带你去下一站。</p>
           <div class="menu-tags">
             <span>第三人称</span><span>自由驾驶</span
-            ><span>BLACKWATER 枪械</span>
+            ><span>直升机飞行</span><span>BLACKWATER 枪械</span>
           </div>
           <button id="start">进入街区 <span>↗</span></button>
           <div class="menu-bottom">
@@ -85,7 +85,7 @@
         </div>
         <div class="edition">
           <span>01 / COPPERLINE</span><b>PALM GROVE</b>
-          <p>一辆车。一把枪。无限街角。</p>
+          <p>抢车 · 街头交互 · 海滨与山城</p>
         </div>
       </section>
       <section id="paused" hidden>
@@ -93,8 +93,8 @@
           <span class="eyebrow">TAKE A BREATHER</span>
           <h2>城市等你回来。</h2>
           <p>
-            WASD 移动 / 驾驶 · F 上下车<br />左键射击 · 右键瞄准 · R 换弹<br />空格跳跃
-            / 手刹 · V 重置位置 · M 静音
+            WASD 移动 / 驾驶 · F 上下车 / 驾驶直升机<br />左键射击 · 右键瞄准 · R 换弹<br />Tab / I 物品栏 · 1–4 切枪 · E 武器商店<br />空格跳跃
+            / 手刹 / 上升 · Shift 下降 · C 切换视角 · M 地图 · N 静音
           </p>
           <p id="lock-status" hidden role="alert">
             浏览器没有允许锁定鼠标。点击下方按钮重试；若仍失败，请在 Chrome 或
@@ -104,6 +104,17 @@
           ><button id="restart" class="secondary">重新开始</button
           ><small>退出鼠标锁定会暂停游戏</small>
         </div>
+      </section>
+      <section id="atlas" hidden role="dialog" aria-modal="true" aria-label="城市大地图">
+        <div class="atlas-top"><div><span class="eyebrow">COPPERLINE / CITY ATLAS</span><h2>沿着路，去远处。</h2><p id="map-location"></p></div><button id="map-close">返回街区 <kbd>M / Esc</kbd></button></div>
+        <canvas id="world-map" aria-label="拖动平移、滚轮缩放，点击设置导航目的地"></canvas>
+        <div class="atlas-bottom"><div><strong id="map-route">点击道路设置目的地</strong><small>拖动平移 · 滚轮缩放 · △ 你的位置 · ▪ 已驾驶车辆 · N ↑</small></div><div><button id="map-center">回到我</button><button id="map-clear">清除路线</button></div></div>
+      </section>
+      <section id="equipment-panel" hidden role="dialog" aria-modal="true" aria-labelledby="equipment-title">
+        <div class="armory-card"><span class="eyebrow">COPPERLINE / ARMORY</span><h2 id="equipment-title">我的物品栏</h2>
+        <p id="equipment-wallet"></p><div id="equipment-items"></div><p id="equipment-message" role="status"></p>
+        <p>1–4 快速切换 · Tab / I 物品栏 · 商店按 E 购买<br />换弹免费 · 武器与金币在复活后保留，重新开始会清空</p>
+        <button id="equipment-close">返回街区 <kbd>Esc / Tab</kbd></button></div>
       </section>
       <div id="fatal" hidden></div>
     </div>

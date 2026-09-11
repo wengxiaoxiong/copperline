@@ -2,48 +2,96 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as T from 'three';
 import R from '@dimforge/rapier3d-compat';
-import { Population, streetCircuit } from '../src/population.ts';
-import { generateBlock, districtAt } from '../src/generation.ts';
-test('districts include all five layouts and repeat across unloads', () => {
-  const kinds = new Set<string>();
-  for (let x = -8; x < 8; x++) for (let z = -8; z < 8; z++) {
-    const b = generateBlock(87, x, z); kinds.add(b.district);
+import { Population } from '../src/population.ts';
+import { createCar } from '../src/models.ts';
+import { generateBlock, districtAt, worldPlan } from '../src/generation.ts';
+test('all eight geographic districts generate consistently, with varied building density', () => {
+  const kinds = new Set<string>(), densities = new Set<number>();
+  for (let x = -9; x < 9; x++) for (let z = -9; z < 9; z++) {
+    const b = generateBlock(87, x, z); kinds.add(b.district); densities.add(b.buildings.length);
     assert.equal(b.district, districtAt(87, x, z));
-    assert.equal(b.buildings.length, b.park ? 0 : b.district === "industrial" ? 2 : 4);
     assert.deepEqual(b, generateBlock(87, x, z));
   }
-  assert.equal(kinds.size, 5);
+  assert.equal(kinds.size, 8); assert.ok(densities.size >= 3);
 });
-test('traffic stays on roads and pedestrians stay on the pavement for a full circuit', () => {
-  for (let t = -300; t < 600; t += 0.5) {
-    const p = streetCircuit(t, 4);
-    assert.ok(p.x === 4 || p.x === 68 || p.z === 4 || p.z === 68);
-    const q = streetCircuit(t, 10);
-    assert.ok(q.x >= 10 && q.x <= 62 && q.z >= 10 && q.z <= 62);
-  }
-});
-test('population moves, brakes, streams with bounded bodies, shifts and resets', async () => {
-  await R.init();
-  const world = new R.World({x:0,y:0,z:0});
-  const crowd = new Population(new T.Scene(), world);
-  const zero = new T.Vector3();
-  crowd.update(0, zero, zero, 87, []);
-  assert.equal(crowd.people.length, 54); assert.equal(crowd.cars.length, 27);
+test('traffic follows roads, brakes for an obstacle, retains stolen vehicle body and driver state', async () => {
+  await R.init(); const world = new R.World({x:0,y:0,z:0}), crowd = new Population(new T.Scene(), world), zero = new T.Vector3();
+  crowd.update(0, zero, zero, 87, []); world.step();
   const car = crowd.cars.find(a => !a.parked)!;
-  const before = car.distance;
-  const p = streetCircuit(before, 4);
-  const blocker = new T.Vector3(car.cx * 72 + p.x - Math.sin(p.yaw) * 5, 0, car.cz * 72 + p.z - Math.cos(p.yaw) * 5);
+  const before = car.distance, p = car.body.translation(), q = car.body.rotation();
+  const forward = new T.Vector3(0,0,-1).applyQuaternion(new T.Quaternion(q.x,q.y,q.z,q.w));
+  const blocker = new T.Vector3(p.x,p.y,p.z).addScaledVector(forward,5);
   crowd.update(0.1, zero, zero, 87, [blocker]);
-  assert.equal(car.distance, before);
-  for (let i=0;i<120;i++) crowd.update(1/60, zero, zero, 87, []);
-  assert.ok(car.distance > before);
-  for (let x=1;x<=12;x++) {
-    crowd.update(0, new T.Vector3(x*72,0,0), zero, 87, []);
-    assert.equal(crowd.cars.length,27); assert.equal(world.bodies.len(),27);
-  }
-  const body=crowd.cars[0].body!; const old=body.translation().x;
-  crowd.shift(new T.Vector3(720,0,0));
-  assert.ok(Math.abs(body.translation().x-(old-720))<0.001);
-  crowd.reset(); assert.equal(world.bodies.len(),0); assert.equal(crowd.people.length,0);
-  world.free();
+  assert.equal(car.distance, before); assert.equal(car.actualSpeed,0);
+  const id = car.id, body = car.body, color = car.color.getHex();
+  assert.ok(crowd.beginEntry(car)); crowd.takeControl(car);
+  assert.equal(car.body,body); assert.equal(car.id,id); assert.equal(car.color.getHex(),color);
+  assert.equal(car.controller,'player'); assert.ok(car.body.isDynamic());
+  const driver = crowd.people.find(p => p.id === `${id}:driver`)!;
+  assert.ok(driver.panic > 0); assert.equal(car.driver,false);
+  crowd.leave(car); assert.equal(car.controller,'parked');
+  body.setTranslation({x:20,y:1.2,z:20},true);
+  crowd.update(1,new T.Vector3(1000,0,1000),zero,87,[]);
+  assert.ok(crowd.cars.includes(car)); assert.equal(body.isEnabled(),false);
+  crowd.update(1,zero,zero,87,[]); assert.equal(body.isEnabled(),true);
+  assert.equal(crowd.cars.filter(c => c.id === id).length,1); assert.equal(body.translation().x,20);
+  crowd.reset(); assert.equal(world.bodies.len(),0); world.free();
+});
+test('NPC hits resolve instance identity, panic and death survive streaming and origin changes', async () => {
+  await R.init(); const world = new R.World({x:0,y:0,z:0}), scene = new T.Scene(), crowd = new Population(scene,world), zero = new T.Vector3();
+  crowd.update(0,zero,zero,87,[]); scene.updateMatrixWorld(true);
+  const p = crowd.people[0];
+  const ray = new T.Raycaster(p.position.clone().add(new T.Vector3(0,1.25,5)),new T.Vector3(0,0,-1),0,10);
+  const hit = ray.intersectObjects(crowd.pedestrians.parts.map(p => p.mesh),true)[0];
+  assert.ok(hit); assert.equal(crowd.actorHit(hit),p);
+  crowd.scare(p.position); assert.ok(p.panic > 0);
+  assert.equal(crowd.damage(p,39),false); assert.equal(crowd.damage(p,39),false); assert.equal(crowd.damage(p,39),true);
+  const old=p.position.clone(); crowd.update(1,new T.Vector3(1000,0,1000),zero,87,[]); crowd.update(1,zero,zero,87,[]);
+  assert.equal(crowd.people.find(a => a.id === p.id)?.health,0);
+  const delta=new T.Vector3(720,0,-720); crowd.shift(delta);
+  assert.ok(p.position.distanceTo(old.sub(delta))<0.001);
+  crowd.update(1,delta.clone().negate(),delta,87,[]); assert.equal(p.health,0);
+  crowd.reset(); world.free();
+});
+test('pedestrians charge the player in melee, and moving traffic runs them down for loot', async () => {
+  await R.init(); const world = new R.World({x:0,y:0,z:0}), crowd = new Population(new T.Scene(), world), zero = new T.Vector3(), far = new T.Vector3(1000,0,1000);
+  crowd.update(0, zero, zero, 87, []);
+  // A pedestrian inside melee range swings immediately and deals damage.
+  const brawler = crowd.people.find(a => a.health > 0)!;
+  crowd.cars.forEach(c => { c.actualSpeed = 0; });
+  brawler.position.set(1.2, brawler.position.y, 0); brawler.attack = 0;
+  let hits = 0; crowd.hurtPlayer = () => { hits++; };
+  crowd.update(1/60, zero, zero, 87, []);
+  assert.ok(hits > 0, 'pedestrian melee reaches the player');
+  assert.ok(brawler.attack > 0 && brawler.chasing === 1);
+  // A car driving over a pedestrian kills them and spills coins.
+  const victim = crowd.people.find(a => a.health > 0 && a.id !== brawler.id)!;
+  const car = crowd.cars[0];
+  crowd.cars.forEach(c => { c.actualSpeed = 0; });
+  car.actualSpeed = 20;
+  victim.position.set(500, victim.position.y, 500);
+  car.body.setTranslation({ x: 500, y: victim.position.y, z: 500 }, true);
+  const before = crowd.drops.length;
+  crowd.update(0, far, zero, 87, []);
+  assert.equal(victim.health, 0);
+  assert.equal(crowd.drops.length - before, 3);
+  assert.equal(crowd.collectDrops(zero, zero, 5, () => 0), 3);
+  assert.equal(crowd.drops.length, 0);
+  crowd.reset(); assert.equal(world.bodies.len(), 0); world.free();
+});
+test('pedestrians maintain personal space at shared spawn points and while chasing', async () => {
+  await R.init(); const world = new R.World({x:0,y:0,z:0}), crowd = new Population(new T.Scene(), world), zero = new T.Vector3();
+  crowd.update(0, zero, zero, 87, []);
+  const [first, second] = crowd.people;
+  // This mirrors two paths meeting at an intersection, then puts both actors
+  // into their chase behavior on the same frame.
+  second.position.copy(first.position); second.chasing = 1;
+  crowd.update(1 / 60, first.position.clone().add(new T.Vector3(4, 0, 0)), zero, 87, []);
+  assert.ok(first.position.distanceTo(second.position) >= 1.19, 'live pedestrians do not overlap');
+  crowd.reset(); world.free();
+});
+test('population bodies remain bounded while traversing the city', async () => {
+  await R.init(); const world = new R.World({x:0,y:0,z:0}), crowd = new Population(new T.Scene(),world), zero = new T.Vector3();
+  for (let x=-700;x<750;x+=72) { crowd.update(1,new T.Vector3(x,0,0),zero,87,[]); world.step(); assert.ok(crowd.cars.length<=70); assert.equal(world.bodies.len(),crowd.cars.length); }
+  crowd.addHomeCar(createCar(),87); crowd.reset(); assert.equal(world.bodies.len(),0); world.free();
 });

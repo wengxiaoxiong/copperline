@@ -4,7 +4,7 @@ import * as T from "three";
 import R from "@dimforge/rapier3d-compat";
 import { Game } from "../src/game.ts";
 import { CameraRig } from "../src/camera-rig.ts";
-import { WeaponState } from "../src/combat.ts";
+import { Inventory } from "../src/inventory.ts";
 test("actual shooting and camera updates keep the settled camera stationary", async () => {
   await R.init();
   const g = Object.create(Game.prototype) as Game;
@@ -28,7 +28,7 @@ test("actual shooting and camera updates keep the settled camera stationary", as
   g.pitch = -0.08;
   g.yaw = -0.42;
   g.keys = new Set();
-  g.weaponState = new WeaponState();
+  g.inventory = new Inventory();
   g.scene = new T.Scene();
   g.scene.add(g.person.root);
   const muzzle = new T.Object3D();

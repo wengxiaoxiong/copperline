@@ -24,6 +24,7 @@ export class CameraRig {
     pitch: number,
     aiming: boolean,
     driving: boolean,
+    firstPerson = false,
   ) {
     this.aimBlend = MathUtils.damp(
       this.aimBlend,
@@ -55,6 +56,15 @@ export class CameraRig {
       Math.sin(viewPitch),
       -Math.cos(viewYaw) * Math.cos(viewPitch),
     );
+    if (firstPerson) {
+      const position = anchor.clone().addScaledVector(look, 0.08);
+      return {
+        position,
+        target: position.clone().addScaledVector(look, 60),
+        look,
+        fov: driving ? 72 : MathUtils.lerp(70, 62, this.aimBlend),
+      };
+    }
     return {
       position,
       target: position.clone().addScaledVector(look, 60),

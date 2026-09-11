@@ -1,13 +1,18 @@
+import { renderHud } from "./hud";
+import { renderEquipmentPanel } from "./equipment-panel";
+import { traceShot } from "./targeting";
 import * as T from "three";
 import R from "@dimforge/rapier3d-compat";
-import { Population } from "./population";
-import { districtAt, DISTRICT_NAMES } from "./generation";
+import { Population, type Vehicle } from "./population";
+import { districtAt, DISTRICT_NAMES, worldPlan } from "./generation";
 import { City } from "./world";
-import { createCar, createPerson } from "./models";
+import { createCar, createHelicopter, createPerson } from "./models";
 import { hashSeed, BLOCK, chunkAt, segmentDistanceSquared } from "./generation";
 import { createWeapon } from "./vendor/blackwater/weapon";
 import { Soundscape } from "./vendor/blackwater/audio";
-import { WeaponState } from "./combat";
+import { Inventory, WEAPONS, SHOP } from "./inventory";
+import { createShop, createExtraWeapons } from "./armory";
+import { Atlas } from "./atlas";
 import { CameraRig } from "./camera-rig";
 const $ = (id: string) => document.getElementById(id)!;
 const UP = new T.Vector3(0, 1, 0),
@@ -15,34 +20,51 @@ const UP = new T.Vector3(0, 1, 0),
 type Effect = { mesh: T.Mesh; life: number; velocity: T.Vector3 };
 export class Game {
   scene = new T.Scene();
-  camera = new T.PerspectiveCamera(62, innerWidth / innerHeight, 0.08, 210);
+  camera = new T.PerspectiveCamera(62, innerWidth / innerHeight, 0.08, 380);
   renderer: T.WebGLRenderer;
   physics = new R.World({ x: 0, y: -18, z: 0 });
   city: City;
   population: Population;
   person = createPerson();
   car = createCar();
+  helicopter = createHelicopter();
   weapon: ReturnType<typeof createWeapon>;
   gunPivot = new T.Group();
   sound = new Soundscape();
-  weaponState = new WeaponState();
-  groundBody: R.RigidBody;
+  inventory = new Inventory();
+  get weaponState() { return this.inventory.current; }
+  shop = createShop();
+  extraWeapons: ReturnType<typeof createExtraWeapons> = [];
+  equipmentMode: "inventory" | "shop" = "inventory";
   playerBody: R.RigidBody;
   playerCollider: R.Collider;
   carBody: R.RigidBody;
+  helicopterBody: R.RigidBody;
+  vehicle: Vehicle;
+  entry: { car: Vehicle; time: number } | null = null;
+  atlas: Atlas;
   controller: R.KinematicCharacterController;
-  mode: "menu" | "playing" | "paused" = "menu";
+  mode: "menu" | "playing" | "paused" | "map" | "equipment" = "menu";
   driving = false;
+  flying = false;
+  view: "third" | "first" = "third";
+  viewChanged = false;
   keys = new Set<string>();
   firing = false;
   aiming = false;
   yaw = 0;
   pitch = -0.12;
   carYaw = 0;
+  helicopterYaw = 0;
   vertical = 0;
   speed = 0;
   time = 0;
   coins = 0;
+  collectedCoins = 0;
+  health = 100;
+  maxHealth = 100;
+  damageTime = 0;
+  roadkills = 0;
   hits = 0;
   seed = "COPPER-1987";
   sun = new T.DirectionalLight(0xffd098, 2.4);
@@ -84,7 +106,7 @@ export class Game {
     this.renderer.toneMappingExposure = 1.2;
     this.renderer.outputColorSpace = T.SRGBColorSpace;
     this.scene.background = new T.Color(0x99996a);
-    this.scene.fog = new T.Fog(0x99996a, 55, 165);
+    this.scene.fog = new T.Fog(0x99996a, 115, 285);
     this.scene.add(new T.HemisphereLight(0xbdc4a2, 0x796b4b, 1.65));
     this.sun.position.set(-55, 38, 30);
     this.sun.castShadow = true;
@@ -101,17 +123,11 @@ export class Game {
     this.sun.shadow.normalBias = 0.035;
     this.scene.add(this.sun, this.sun.target);
 
-    this.groundBody = this.physics.createRigidBody(
-      R.RigidBodyDesc.fixed().setTranslation(0, -0.5, 0),
-    );
-    this.physics.createCollider(
-      R.ColliderDesc.cuboid(256, 0.5, 256),
-      this.groundBody,
-    );
+    // Terrain and bridge collision now belong to the streamed city meshes.
     this.city = new City(this.scene, this.physics, hashSeed(this.seed));
     this.city.update(new T.Vector3(5, 0, 18), true);
     this.playerBody = this.physics.createRigidBody(
-      R.RigidBodyDesc.kinematicPositionBased().setTranslation(5, 0.9, 18),
+      R.RigidBodyDesc.kinematicPositionBased().setTranslation(5, worldPlan(hashSeed(this.seed)).surfaceAt(5, 18) + 0.9, 18),
     );
     this.playerCollider = this.physics.createCollider(
       R.ColliderDesc.capsule(0.52, 0.32).setFriction(0),
@@ -121,32 +137,30 @@ export class Game {
     this.controller.enableAutostep(0.35, 0.2, false);
     this.controller.enableSnapToGround(0.3);
     this.controller.setSlideEnabled(true);
-    this.carBody = this.physics.createRigidBody(
-      R.RigidBodyDesc.dynamic()
-        .setTranslation(3, 0.04, 12)
-        .setLinearDamping(0.18)
-        .setAngularDamping(4)
-        .setCcdEnabled(true),
-    );
-    this.carBody.setEnabledRotations(false, true, false, true);
-    this.physics.createCollider(
-      R.ColliderDesc.cuboid(0.99, 0.84, 2.18)
-        .setTranslation(0, 0.84, 0)
-        .setMass(1000)
-        .setFriction(0)
-        .setFrictionCombineRule(R.CoefficientCombineRule.Min)
-        .setRestitution(0.08),
-      this.carBody,
-    );
     this.population = new Population(this.scene, this.physics);
-    this.population.update(0, new T.Vector3(5, 0, 18), this.city.offset, this.city.seed, [new T.Vector3(3, 0, 12)]);
-    this.scene.add(this.person.root, this.car.root);
+    this.population.hurtPlayer = (amount) => this.damagePlayer(amount);
+    this.population.onRunOver = (_person, car) => {
+      if (car !== this.vehicle) return;
+      this.roadkills++; this.hitTime = 0.2; this.notify("有人被你碾倒了 · 掉落金币");
+    };
+    this.vehicle = this.population.addHomeCar(this.car, this.city.seed);
+    this.carBody = this.vehicle.body;
+    this.helicopterBody = this.createHelicopterBody();
+    this.population.update(0, this.activePosition(), this.city.offset, this.city.seed, [new T.Vector3(3, 0, 12)]);
+    this.atlas = new Atlas(() => ({
+      plan: worldPlan(this.city.seed), player: this.activePosition().add(this.city.offset), yaw: this.flying ? this.helicopterYaw : this.driving ? this.carYaw : this.yaw,
+      vehicles: this.population.cars.filter(c => c.claimed).map(c => ({ x: c.body.translation().x + this.city.offset.x, z: c.body.translation().z + this.city.offset.z, active: c === this.vehicle })),
+    }), () => this.start());
+    this.scene.add(this.person.root, this.car.root, this.helicopter.root);
     this.person.root.add(this.gunPivot);
     this.gunPivot.position.set(0.26, 1.37, -0.12);
     this.weapon = createWeapon(T, this.gunPivot);
     this.weapon.hands.visible = false;
     this.weapon.group.scale.setScalar(0.8);
     this.weapon.group.position.set(0, -0.04, 0);
+    this.extraWeapons = createExtraWeapons(this.gunPivot);
+    this.scene.add(this.shop);
+    this.positionShop();
     this.gunPivot.rotation.x = -0.45;
     this.camera.position.set(12, 7, 30);
     this.camera.lookAt(0, 1, 4);
@@ -170,14 +184,31 @@ export class Game {
         this.mode === "playing"
       )
         e.preventDefault();
+      if (this.mode === "equipment") {
+        if (!e.repeat && ["Escape", "Tab", "KeyI", "KeyE"].includes(e.code)) { e.preventDefault(); this.start(); }
+        return;
+      }
+      if (this.mode === "map") {
+        if (!e.repeat && (e.code === "KeyM" || e.code === "Escape")) { e.preventDefault(); this.start(); }
+        return;
+      }
       if (this.mode !== "playing") return;
       this.keys.add(e.code);
       if (e.repeat) return;
+      if (["Tab", "KeyI"].includes(e.code)) { e.preventDefault(); this.openEquipment("inventory"); return; }
+      if (e.code === "KeyE" && this.nearShop()) { this.openEquipment("shop"); return; }
+      if (/^Digit[1-4]$/.test(e.code) && !this.driving && !this.flying && !this.entry) {
+        const slot = Number(e.code.slice(-1)) - 1;
+        if (this.inventory.equip(slot)) { this.syncWeapon(); this.notify(`已装备 ${this.inventory.spec.name}`); }
+        else this.notify("尚未拥有 · 到复活点武器商店购买");
+      }
       if (e.code === "KeyF") this.interact();
+      if (e.code === "KeyC") this.toggleView();
       if (e.code === "KeyR" && !this.driving && this.weaponState.reload())
         this.sound.reload();
       if (e.code === "KeyV") this.recover();
-      if (e.code === "KeyM") {
+      if (e.code === "KeyM") { this.openMap(); return; }
+      if (e.code === "KeyN") {
         this.muted = !this.muted;
         this.sound.setMute(this.muted);
         this.notify(this.muted ? "声音已关闭" : "声音已开启");
@@ -185,7 +216,7 @@ export class Game {
       if (e.code === "Escape") this.pause();
       if (
         e.code === "Space" &&
-        !this.driving &&
+        !this.driving && !this.flying &&
         this.controller.computedGrounded()
       )
         this.vertical = 6;
@@ -251,6 +282,18 @@ export class Game {
       }
       this.start();
     });
+    $("equipment-close").addEventListener("click", () => this.start());
+    $("equipment-items").addEventListener("click", e => {
+      const button = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-slot]");
+      if (!button || this.mode !== "equipment") return;
+      const slot = Number(button.dataset.slot);
+      if (this.inventory.owned.has(slot)) this.inventory.equip(slot);
+      else if (this.equipmentMode === "shop" && this.nearShop()) {
+        const result = this.inventory.buy(slot, this.coins); this.coins = result.coins;
+        $("equipment-message").textContent = result.bought ? `已购买 ${WEAPONS[slot].name}，已自动装备` : "金币不足，去街头捡几枚再来。";
+      }
+      this.syncWeapon(); this.renderEquipment(); this.updateHud();
+    });
     $("resume").addEventListener("click", () => this.start());
     $("restart").addEventListener("click", () => {
       this.reset();
@@ -287,6 +330,7 @@ export class Game {
     if (!this.lockPending) return;
     this.lockPending = false;
     this.lockAttempt++;
+    this.atlas?.close();
     this.pause();
     $("lock-status").hidden = false;
   }
@@ -295,7 +339,9 @@ export class Game {
     this.firing = false;
     this.aiming = false;
     $("lock-status").hidden = true;
+    const panel = document.getElementById("equipment-panel"); if (panel) panel.hidden = true;
     this.mode = "playing";
+    this.atlas.close();
     this.keys.clear();
     this.clock.getDelta();
     this.accumulator = 0;
@@ -319,12 +365,20 @@ export class Game {
         .connect(this.sound.master);
       this.engineOsc.start();
     }
-    this.notify("欢迎来到铜线街区 · F 上车，沿金币前行");
+    this.notify("Tab 物品栏 · 1–4 切枪 · 出生点旁 E 买武器 · C 视角");
+  }
+  openMap() {
+    this.mode = "map";
+    this.keys.clear(); this.firing = false; this.aiming = false;
+    if (this.engineGain && this.sound.ctx) this.engineGain.gain.setTargetAtTime(0, this.sound.ctx.currentTime, 0.05);
+    this.atlas.open();
+    if (document.pointerLockElement) document.exitPointerLock();
   }
   pause() {
     this.lockPending = false;
     this.lockAttempt++;
     document.body.classList.remove("pointer-locked");
+    const panel = document.getElementById("equipment-panel"); if (panel) panel.hidden = true;
     this.mode = "paused";
     this.keys.clear();
     this.firing = false;
@@ -334,34 +388,75 @@ export class Game {
       this.engineGain.gain.setTargetAtTime(0, this.sound.ctx.currentTime, 0.05);
     if (document.pointerLockElement) document.exitPointerLock();
   }
+  nearShop() {
+    if (this.driving || this.flying || this.entry) return false;
+    const p = this.activePosition().add(this.city.offset);
+    return Math.hypot(p.x - SHOP.x, p.z - SHOP.z) < 5 && Math.abs(p.y - worldPlan(this.city.seed).surfaceAt(SHOP.x, SHOP.z)) < 3;
+  }
+  positionShop() {
+    this.shop.position.set(SHOP.x - this.city.offset.x, worldPlan(this.city.seed).surfaceAt(SHOP.x, SHOP.z), SHOP.z - this.city.offset.z);
+  }
+  syncWeapon() {
+    this.firing = false; this.aiming = false;
+    this.weapon.group.visible = this.inventory.selected === 0;
+    this.extraWeapons.forEach((weapon, i) => weapon.group.visible = this.inventory.selected === i + 1);
+  }
+  openEquipment(mode: "inventory" | "shop") {
+    if (this.driving || this.flying || this.entry) { this.notify("下车后可以查看武器物品栏"); return; }
+    this.equipmentMode = mode; this.mode = "equipment";
+    this.keys.clear(); this.firing = false; this.aiming = false;
+    $("equipment-panel").hidden = false; $("equipment-message").textContent = "";
+    this.renderEquipment();
+    if (this.engineGain && this.sound.ctx) this.engineGain.gain.setTargetAtTime(0, this.sound.ctx.currentTime, .05);
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+  renderEquipment() {
+    renderEquipmentPanel(this.inventory, this.coins, this.equipmentMode);
+  }
   reset() {
     this.population.reset();
+    this.entry = null;
+    this.atlas.reset();
     this.cameraRig.reset();
-    this.groundBody.setTranslation({ x: 0, y: -0.5, z: 0 }, false);
     this.keys.clear();
     this.firing = false;
     this.aiming = false;
+    this.view = "third";
+    this.viewChanged = true;
     this.speed = 0;
     this.moving = 0;
     this.city.reset(hashSeed(this.seed));
+    this.car = createCar();
+    this.vehicle = this.population.addHomeCar(this.car, this.city.seed);
+    this.carBody = this.vehicle.body;
+    this.physics.removeRigidBody(this.helicopterBody);
+    this.helicopterBody = this.createHelicopterBody();
     this.playerBody.setEnabled(true);
-    this.playerBody.setTranslation({ x: 5, y: 0.9, z: 18 }, true);
-    this.playerBody.setNextKinematicTranslation({ x: 5, y: 0.9, z: 18 });
-    this.carBody.setTranslation({ x: 3, y: 0.04, z: 12 }, true);
+    this.playerBody.setTranslation({ x: 5, y: worldPlan(this.city.seed).surfaceAt(5, 18) + 0.9, z: 18 }, true);
+    this.playerBody.setNextKinematicTranslation({ x: 5, y: worldPlan(this.city.seed).surfaceAt(5, 18) + 0.9, z: 18 });
+    this.carBody.setTranslation({ x: 3, y: worldPlan(this.city.seed).surfaceAt(3, 12) + 0.08, z: 12 }, true);
     this.carBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.carBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.carBody.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
     this.driving = false;
+    this.flying = false;
     this.person.root.rotation.set(0, 0, 0);
     this.yaw = 0;
     this.pitch = -0.12;
     this.carYaw = 0;
+    this.helicopterYaw = 0;
     this.coins = 0;
+    this.collectedCoins = 0;
     this.hits = 0;
+    this.health = this.maxHealth;
+    this.damageTime = 0;
+    this.roadkills = 0;
     this.travel = 0;
     this.floatShifts = 0;
     this.vertical = 0;
-    this.weaponState.reset();
+    this.inventory = new Inventory();
+    this.syncWeapon();
+    this.positionShop();
     this.city.update(new T.Vector3(5, 0, 18), true);
     this.population.update(0, new T.Vector3(5, 0, 18), this.city.offset, this.city.seed, [new T.Vector3(3, 0, 12)]);
     this.syncModels();
@@ -376,25 +471,69 @@ export class Game {
     this.effects = [];
   }
   activePosition() {
-    const p = this.driving
-      ? this.carBody.translation()
-      : this.playerBody.translation();
+    const p = this.flying
+      ? this.helicopterBody.translation()
+      : this.driving
+        ? this.carBody.translation()
+        : this.playerBody.translation();
     return new T.Vector3(p.x, p.y, p.z);
   }
+  toggleView() {
+    this.view = this.view === "third" ? "first" : "third";
+    this.viewChanged = true;
+    this.notify(this.view === "first" ? "第一人称视角" : "第三人称视角");
+  }
+  createHelicopterBody() {
+    const plan = worldPlan(this.city.seed), x = 10, z = 18;
+    const body = this.physics.createRigidBody(
+      R.RigidBodyDesc.kinematicPositionBased().setTranslation(x, plan.surfaceAt(x, z) + 0.12, z),
+    );
+    this.physics.createCollider(
+      R.ColliderDesc.cuboid(1.3, 1.15, 2.8).setTranslation(0, 1.2, 0),
+      body,
+    );
+    return body;
+  }
+  nearHelicopter() {
+    return new T.Vector3().copy(this.helicopterBody.translation()).distanceTo(this.activePosition()) < 5.2;
+  }
   interact() {
-    if (!this.driving) {
-      if (this.person.root.position.distanceTo(this.car.root.position) > 4.8) {
-        this.notify("走近橙色轿车，按 F 上车");
+    if (this.entry) return;
+    if (this.flying) {
+      const p = this.helicopterBody.translation();
+      const ground = worldPlan(this.city.seed).surfaceAt(p.x + this.city.offset.x, p.z + this.city.offset.z);
+      if (p.y - ground > 0.6 || Math.abs(this.speed) > 2) {
+        this.notify("请先降落并停稳，再按 F 离开直升机");
         return;
       }
-      this.driving = true;
-      this.firing = false;
-      this.aiming = false;
-      this.playerBody.setEnabled(false);
-      this.person.root.visible = false;
-      this.yaw = this.carYaw;
-      this.pitch = -0.15;
-      this.notify("HARBOR SEDAN · 空格手刹 / F 下车");
+      this.flying = false;
+      const exit = { x: p.x + 2.4, y: ground + 0.9, z: p.z };
+      this.playerBody.setEnabled(true);
+      this.playerBody.setTranslation(exit, true);
+      this.playerBody.setNextKinematicTranslation(exit);
+      this.person.root.visible = true;
+      this.speed = 0;
+      this.notify("已离开直升机");
+    } else if (!this.driving) {
+      if (this.nearHelicopter()) {
+        this.flying = true;
+        this.playerBody.setEnabled(false);
+        this.person.root.visible = false;
+        this.speed = 0;
+        this.yaw = this.helicopterYaw;
+        this.pitch = -0.18;
+        this.notify("直升机启动 · 空格上升 / Shift 下降");
+        return;
+      }
+      const candidate = this.population.nearestVehicle(this.activePosition());
+      if (!candidate) { this.notify("靠近任意车辆，按 F 上车或抢车"); return; }
+      const delta = new T.Vector3().copy(candidate.body.translation()).add(new T.Vector3(0, 1, 0)).sub(this.activePosition());
+      const obstruction = this.physics.castRay(new R.Ray(this.activePosition(), delta.clone().normalize()), delta.length(), true, R.QueryFilterFlags.ONLY_FIXED);
+      if (obstruction) { this.notify("请走到车门旁"); return; }
+      if (!this.population.beginEntry(candidate)) { this.notify("车辆还在行驶，等它停下再上车"); return; }
+      this.entry = { car: candidate, time: 0 };
+      this.firing = false; this.aiming = false;
+      this.notify(candidate.driver ? "正在打开车门 · 请司机下车…" : "正在上车…");
     } else {
       if (Math.abs(this.speed) > 3) {
         this.notify("先减速停车，再按 F 下车");
@@ -405,7 +544,7 @@ export class Game {
       for (const x of [-2.2, 2.2, 0]) {
         const v = new T.Vector3(x, 0.93, x === 0 ? 3.6 : 0)
           .applyAxisAngle(UP, this.carYaw)
-          .add(new T.Vector3(p.x, 0, p.z));
+          .add(new T.Vector3(p.x, p.y, p.z));
         const hit = this.physics.intersectionWithShape(
           v,
           { x: 0, y: 0, z: 0, w: 1 },
@@ -425,49 +564,90 @@ export class Game {
         return;
       }
       this.driving = false;
+      this.population.leave(this.vehicle);
       this.playerBody.setEnabled(true);
       this.playerBody.setTranslation(exit, true);
       this.playerBody.setNextKinematicTranslation(exit);
       this.vertical = 0;
       this.person.root.visible = true;
-      this.notify("右键肩后瞄准 · 街边红色靶子可射击");
+      this.notify("右键瞄准 · 左键射击 · M 打开地图");
     }
   }
   recover() {
     const p = this.activePosition();
-    const logical = p.clone().add(this.city.offset),
-      c = chunkAt(logical.x, logical.z);
-    const safe = new T.Vector3(
-      c.x * BLOCK + 3 - this.city.offset.x,
-      0.1,
-      c.z * BLOCK + 18 - this.city.offset.z,
-    );
-    if (this.driving) {
+    const logical = p.clone().add(this.city.offset), plan = worldPlan(this.city.seed);
+    const near = plan.nearestRoad(logical.x, logical.z);
+    const safe = new T.Vector3(near.x - this.city.offset.x, plan.surfaceAt(near.x, near.z) + 0.12, near.z - this.city.offset.z);
+    if (this.flying) {
+      this.helicopterBody.setTranslation(safe, true);
+      this.helicopterBody.setNextKinematicTranslation(safe);
+      this.speed = 0;
+    } else if (this.driving) {
       this.carBody.setTranslation(safe, true);
       this.carBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
       this.carBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
       this.carYaw = 0;
       this.carBody.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
     } else {
-      safe.y = 0.9;
+      safe.y += 0.9;
       this.playerBody.setTranslation(safe, true);
       this.playerBody.setNextKinematicTranslation(safe);
     }
     this.notify("已返回附近道路");
   }
+  // Death returns to the home spawn without resetting purchased equipment.
+  damagePlayer(amount: number) {
+    if (this.mode !== "playing") return;
+    this.health = Math.max(0, this.health - amount);
+    this.damageTime = 0.35;
+    this.sound.hit();
+    if (this.health > 0) return;
+    this.health = this.maxHealth;
+    this.entry = null; this.driving = false; this.flying = false;
+    this.playerBody.setEnabled(true); this.person.root.visible = true;
+    const spawn = { x: 5 - this.city.offset.x, y: worldPlan(this.city.seed).surfaceAt(5, 18) + .9, z: 18 - this.city.offset.z };
+    this.playerBody.setTranslation(spawn, true); this.playerBody.setNextKinematicTranslation(spawn);
+    this.vertical = 0; this.speed = 0; this.keys.clear(); this.firing = false; this.aiming = false;
+    this.city.update(this.activePosition(), true); this.cameraRig.reset();
+    this.notify("已在街区起点复活 · 武器和金币已保留");
+  }
   step(dt: number) {
     const before = this.activePosition();
-    const floor = this.groundBody.translation(),
-      gx = Math.round(before.x / BLOCK) * BLOCK,
-      gz = Math.round(before.z / BLOCK) * BLOCK;
-    if (floor.x !== gx || floor.z !== gz)
-      this.groundBody.setTranslation({ x: gx, y: -0.5, z: gz }, false);
-    this.weaponState.update(dt);
-    if (!this.driving) {
-      const c = this.carBody.translation();
-      this.carBody.setEnabled(Math.hypot(c.x - before.x, c.z - before.z) < 110);
+    for (const weapon of this.inventory.owned.values()) weapon.update(dt);
+    if (this.entry) {
+      this.entry.time += dt;
+      this.entry.car.model!.door.rotation.y = -Math.sin(Math.min(1, this.entry.time / 0.9) * Math.PI) * 1.1;
+      if (this.entry.time >= 0.9) {
+        this.vehicle = this.entry.car;
+        this.population.takeControl(this.vehicle);
+        this.car = this.vehicle.model!; this.carBody = this.vehicle.body;
+        const q = this.carBody.rotation();
+        this.carYaw = new T.Euler().setFromQuaternion(new T.Quaternion(q.x, q.y, q.z, q.w), "YXZ").y;
+        this.yaw = this.carYaw; this.pitch = -0.15; this.speed = 0;
+        this.driving = true; this.playerBody.setEnabled(false); this.person.root.visible = false;
+        this.entry = null; this.notify("已接管车辆 · F 下车 / M 地图");
+      }
     }
-    if (this.driving) {
+    if (this.flying) {
+      const body = this.helicopterBody, pos = body.translation();
+      const throttle = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
+      const steer = (this.keys.has("KeyA") ? 1 : 0) - (this.keys.has("KeyD") ? 1 : 0);
+      const lift = (this.keys.has("Space") ? 1 : 0) - ((this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) ? 1 : 0);
+      this.speed += throttle * 22 * dt;
+      this.speed *= Math.exp(-dt * (throttle ? 0.16 : 1.25));
+      this.speed = T.MathUtils.clamp(this.speed, -12, 42);
+      this.helicopterYaw += steer * (0.7 + Math.min(0.55, Math.abs(this.speed) / 45)) * dt;
+      const forward = new T.Vector3(-Math.sin(this.helicopterYaw), 0, -Math.cos(this.helicopterYaw));
+      const logicalX = pos.x + this.city.offset.x, logicalZ = pos.z + this.city.offset.z;
+      const ground = worldPlan(this.city.seed).surfaceAt(logicalX, logicalZ);
+      const y = T.MathUtils.clamp(pos.y + lift * 11 * dt, ground + 0.12, 90);
+      body.setNextKinematicTranslation({ x: pos.x + forward.x * this.speed * dt, y, z: pos.z + forward.z * this.speed * dt });
+      body.setNextKinematicRotation(new T.Quaternion().setFromEuler(new T.Euler(throttle * -0.08, this.helicopterYaw, -steer * 0.08, "YXZ")));
+      if (!this.keys.has("AltLeft")) {
+        const delta = Math.atan2(Math.sin(this.helicopterYaw - this.yaw), Math.cos(this.helicopterYaw - this.yaw));
+        this.yaw += delta * (1 - Math.exp(-dt * 1.8));
+      }
+    } else if (this.driving) {
       const v = this.carBody.linvel(),
         forward = new T.Vector3(
           -Math.sin(this.carYaw),
@@ -480,15 +660,20 @@ export class Game {
       const steer =
         (this.keys.has("KeyA") ? 1 : 0) - (this.keys.has("KeyD") ? 1 : 0);
       const brake = this.keys.has("Space");
-      speed += throttle * (throttle * speed < 0 ? 25 : 12) * dt;
+      speed += throttle * (throttle * speed < 0 ? 32 : 18) * dt;
       speed *= Math.exp(-(brake ? 3.2 : throttle === 0 ? 0.55 : 0.12) * dt);
-      speed = T.MathUtils.clamp(speed, -10, 32);
+      speed = T.MathUtils.clamp(speed, -13, 45);
       this.carYaw +=
         steer *
         T.MathUtils.clamp(speed / 8, -1, 1) *
         (brake ? 1.65 : 1.05) *
         dt;
-      const q = new T.Quaternion().setFromAxisAngle(UP, this.carYaw);
+      const pos = this.carBody.translation(), plan = worldPlan(this.city.seed);
+      const ground = (x: number, z: number) => plan.surfaceAt(x + this.city.offset.x, z + this.city.offset.z);
+      const fx = -Math.sin(this.carYaw), fz = -Math.cos(this.carYaw), rx = Math.cos(this.carYaw), rz = -Math.sin(this.carYaw);
+      const pitch = Math.atan2(ground(pos.x + fx * 1.5, pos.z + fz * 1.5) - ground(pos.x - fx * 1.5, pos.z - fz * 1.5), 3);
+      const roll = Math.atan2(ground(pos.x + rx, pos.z + rz) - ground(pos.x - rx, pos.z - rz), 2);
+      const q = new T.Quaternion().setFromEuler(new T.Euler(pitch, this.carYaw, roll, "YXZ"));
       this.carBody.setRotation(q, true);
       this.carBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
       forward.set(-Math.sin(this.carYaw), 0, -Math.cos(this.carYaw));
@@ -516,12 +701,12 @@ export class Game {
           (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0),
         side =
           (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
-      const moving = new T.Vector3(side, 0, -f);
+      const moving = this.entry ? new T.Vector3() : new T.Vector3(side, 0, -f);
       if (moving.lengthSq() > 0) moving.normalize();
       moving.applyAxisAngle(UP, this.yaw);
-      const sprint = this.keys.has("ShiftLeft") && !this.aiming && !this.firing;
-      const speed = this.aiming ? 2.7 : sprint ? 7 : 4;
-      this.moving = moving.length() * (sprint ? 1.4 : 1);
+      const sprint = (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) && !this.aiming && !this.firing;
+      const speed = this.aiming ? 2.7 : sprint ? 10.5 : 4;
+      this.moving = moving.length() * (sprint ? 1.75 : 1);
       if (this.aiming || this.firing) this.person.root.rotation.y = this.yaw;
       else if (moving.lengthSq() > 0) {
         const angle = Math.atan2(-moving.x, -moving.z);
@@ -547,29 +732,24 @@ export class Game {
       });
       if (this.controller.computedGrounded() && this.vertical < 0)
         this.vertical = 0;
-      const cv = this.carBody.linvel();
-      this.carBody.setLinvel(
-        { x: cv.x * Math.exp(-dt * 3), y: cv.y, z: cv.z * Math.exp(-dt * 3) },
-        true,
-      );
     }
-    this.population.update(dt, this.activePosition(), this.city.offset, this.city.seed, [new T.Vector3().copy(this.playerBody.translation()), new T.Vector3().copy(this.carBody.translation())]);
+    this.population.playerVulnerable = !this.driving && !this.flying;
+    this.population.update(dt, this.activePosition(), this.city.offset, this.city.seed, this.driving || this.flying ? [] : [this.activePosition()]);
     this.physics.timestep = dt;
     this.physics.step();
     const after = this.activePosition();
+    if (after.y < -5) { this.recover(); this.notify("已返回岸边道路"); }
     this.travel += Math.hypot(after.x - before.x, after.z - before.z);
-    const n = this.city.collect(
-      before,
-      after,
-      this.driving ? 1.9 : 1.05,
-      segmentDistanceSquared,
-    );
+    const radius = this.driving ? 1.9 : this.flying ? 2.4 : 1.05;
+    const n = this.city.collect(before, after, radius, segmentDistanceSquared) +
+      this.population.collectDrops(before, after, radius + 0.25, segmentDistanceSquared);
     if (n) {
       this.coins += n;
+      this.collectedCoins += n;
       this.pickupTime = 1.1;
       $("pickup").textContent = `+${n} ◈`;
       this.sound.tone(900, 0.12, 0.12, 1700);
-      if (this.coins >= 20 && this.coins - n < 20)
+      if (this.collectedCoins >= 20 && this.collectedCoins - n < 20)
         this.notify("街头拾金完成 · 继续探索，无需停下");
     }
     if (Math.abs(after.x) > 1500 || Math.abs(after.z) > 1500)
@@ -583,17 +763,13 @@ export class Game {
       Math.floor(p.z / BLOCK) * BLOCK,
     );
     this.city.shift(delta);
+    this.positionShop();
     this.population.shift(delta);
-    const floor = this.groundBody.translation();
-    this.groundBody.setTranslation(
-      { x: floor.x - delta.x, y: -0.5, z: floor.z - delta.z },
-      false,
-    );
-    for (const b of [this.playerBody, this.carBody]) {
+    for (const b of [this.playerBody, this.helicopterBody]) {
       const v = b.translation();
       const shifted = { x: v.x - delta.x, y: v.y, z: v.z - delta.z };
       b.setTranslation(shifted, true);
-      if (b === this.playerBody) b.setNextKinematicTranslation(shifted);
+      b.setNextKinematicTranslation(shifted);
     }
     this.camera.position.sub(delta);
     for (const e of this.effects) e.mesh.position.sub(delta);
@@ -603,59 +779,70 @@ export class Game {
     const p = this.playerBody.translation(),
       c = this.carBody.translation();
     this.person.root.position.set(p.x, p.y - 0.87, p.z);
-    this.person.root.visible = !this.driving;
+    this.person.root.visible = !this.driving && !this.flying && this.view === "third";
     this.car.root.position.set(c.x, c.y, c.z);
     this.car.root.quaternion.copy(this.carBody.rotation());
+    this.helicopter.root.position.copy(this.helicopterBody.translation());
+    this.helicopter.root.quaternion.copy(this.helicopterBody.rotation());
   }
   updateCamera(dt: number) {
     const p = this.activePosition();
     const anchor = p.clone();
     anchor.y =
-      (this.driving ? this.car.root.position.y : this.person.root.position.y) +
-      (this.driving ? 1.6 : 1.52);
+      (this.flying ? this.helicopter.root.position.y : this.driving ? this.car.root.position.y : this.person.root.position.y) +
+      (this.flying ? 2.2 : this.driving ? 1.6 : 1.52);
     const pose = this.cameraRig.update(
       dt,
       anchor,
       this.yaw,
       this.pitch,
       this.aiming,
-      this.driving,
+      this.driving || this.flying,
+      this.view === "first",
     );
     const desired = pose.position;
-    const delta = desired.clone().sub(anchor),
-      length = delta.length();
-    delta.normalize();
-    const hit = this.physics.castRay(
-      new R.Ray(anchor, delta),
-      length,
-      true,
-      R.QueryFilterFlags.ONLY_FIXED,
-    );
-    if (hit)
-      desired
-        .copy(anchor)
-        .addScaledVector(delta, Math.max(0.3, hit.timeOfImpact - 0.35));
-    desired.y = Math.max(0.45, desired.y);
-    this.camera.position.lerp(desired, 1 - Math.exp(-dt * 8));
-    // Also constrain the interpolated position: smoothing must not pass through a wall.
-    const actual = this.camera.position.clone().sub(anchor),
-      actualDistance = actual.length();
-    if (actualDistance > 0.01) {
-      actual.normalize();
-      const obstruction = this.physics.castRay(
-        new R.Ray(anchor, actual),
-        actualDistance,
+    if (this.view === "third") {
+      const delta = desired.clone().sub(anchor),
+        length = delta.length();
+      delta.normalize();
+      const hit = this.physics.castRay(
+        new R.Ray(anchor, delta),
+        length,
         true,
         R.QueryFilterFlags.ONLY_FIXED,
       );
-      if (obstruction)
-        this.camera.position
+      if (hit)
+        desired
           .copy(anchor)
-          .addScaledVector(
-            actual,
-            Math.max(0.3, obstruction.timeOfImpact - 0.35),
-          );
+          .addScaledVector(delta, Math.max(0.3, hit.timeOfImpact - 0.35));
+      desired.y = Math.max(0.45, desired.y);
+      if (this.viewChanged) this.camera.position.copy(desired);
+      else this.camera.position.lerp(desired, 1 - Math.exp(-dt * 8));
+      // Also constrain the interpolated position: smoothing must not pass through a wall.
+      const actual = this.camera.position.clone().sub(anchor),
+        actualDistance = actual.length();
+      if (actualDistance > 0.01) {
+        actual.normalize();
+        const obstruction = this.physics.castRay(
+          new R.Ray(anchor, actual),
+          actualDistance,
+          true,
+          R.QueryFilterFlags.ONLY_FIXED,
+        );
+        if (obstruction)
+          this.camera.position
+            .copy(anchor)
+            .addScaledVector(
+              actual,
+              Math.max(0.3, obstruction.timeOfImpact - 0.35),
+            );
+      }
+    } else if (this.viewChanged) {
+      this.camera.position.copy(desired);
+    } else {
+      this.camera.position.lerp(desired, 1 - Math.exp(-dt * 18));
     }
+    this.viewChanged = false;
     this.camera.lookAt(
       this.camera.position.clone().addScaledVector(pose.look, 60),
     );
@@ -665,45 +852,32 @@ export class Game {
   }
   fire() {
     if (
-      this.driving ||
+      this.driving || this.flying || this.entry ||
       !this.weaponState.fire(this.keys.has("ShiftLeft") && !this.aiming)
     )
       return;
-    this.weapon.flash();
+    const spec = this.inventory.spec;
+    if (this.inventory.selected === 0) this.weapon.flash();
+    else this.extraWeapons[this.inventory.selected - 1].flashTime = .05;
     this.sound.shot();
     this.scene.updateMatrixWorld(true);
-    const direction = new T.Vector3();
-    this.camera.getWorldDirection(direction);
-    const spread = this.aiming ? 0.0018 : 0.006;
-    direction.x += (Math.random() - 0.5) * spread;
-    direction.y += (Math.random() - 0.5) * spread;
-    direction.normalize();
-    const candidates = [
-      ...this.city.occluders,
-      ...this.city.targets.map((t) => t.mesh),
-      this.car.root,
-    ];
-    // Ray retains the origin reference; never give it the live camera position.
-    const ray = new T.Raycaster(
-      this.camera.position.clone(),
-      direction,
-      0,
-      120,
-    );
-    const aimHit = ray.intersectObjects(candidates, true)[0];
-    const aim =
-      aimHit?.point ??
-      this.camera.position.clone().addScaledVector(direction, 120);
-    const muzzle = new T.Vector3();
-    this.weapon.muzzle.getWorldPosition(muzzle);
-    const bullet = aim.clone().sub(muzzle);
-    ray.set(muzzle, bullet.clone().normalize());
-    ray.far = bullet.length() + 0.05;
-    const hit = ray.intersectObjects(candidates, true)[0];
-    const impact = hit?.point ?? aim;
-    if (hit?.object.userData.target) {
+    for (let pellet = 0; pellet < spec.pellets; pellet++) {
+    const { hit, muzzle, impact } = traceShot({
+      camera: this.camera,
+      muzzle: this.inventory.selected === 0 ? this.weapon.muzzle : this.extraWeapons[this.inventory.selected - 1].muzzle,
+      candidates: [...this.city.occluders, ...this.city.targets.map(t => t.mesh), ...(this.population?.hitObjects ?? [this.car.root])],
+      range: spec.range, spread: spec.spread * (this.aiming ? .4 : 1),
+    });
+    this.population?.scare(this.activePosition());
+    const actor = hit && this.population?.actorHit(hit);
+    if (actor?.kind === "person" && actor.health > 0) {
+      const down = this.population.damage(actor, spec.damage);
+      this.hitTime = 0.18; this.sound.hit();
+      if (down) this.notify("NPC 已倒地 · 附近行人正在逃离");
+    }
+    if (hit?.object.userData.target?.health > 0) {
       const target = hit.object.userData.target;
-      target.health -= 39;
+      target.health -= spec.damage;
       this.hitTime = 0.18;
       this.sound.hit();
       if (target.health <= 0) {
@@ -732,6 +906,7 @@ export class Game {
         });
       }
     }
+    }
     this.cameraRig.kick();
   }
   tracer(a: T.Vector3, b: T.Vector3) {
@@ -754,52 +929,18 @@ export class Game {
     this.toastTime = 3;
   }
   updateHud() {
-    $("coins").textContent = String(this.coins).padStart(7, "0");
-    $("ammo-bar").style.width = `${(this.weaponState.ammo / 30) * 100}%`;
-    $("ammo").textContent =
-      this.weaponState.reloadTime > 0
-        ? "—"
-        : String(this.weaponState.ammo).padStart(2, "0");
-    $("speed").textContent = String(Math.round(Math.abs(this.speed) * 3.6));
-    $("gear").textContent =
-      this.speed < -0.5 ? "R" : this.speed > 1 ? "D" : "N";
-    $("weapon-status").hidden = this.driving;
-    $("drive-status").hidden = !this.driving;
-    $("equipment-label").textContent = this.driving
-      ? "HARBOR / 2.0 SEDAN"
-      : "MR-17 / BLACKWATER";
-    $("equipment-hint").textContent = this.driving
-      ? "空格 手刹 · F 下车"
-      : this.weaponState.reloadTime > 0
-        ? "正在更换弹匣…"
-        : "R 换弹 · 右键瞄准";
-    $("crosshair").hidden = this.driving || this.mode !== "playing";
-    $("crosshair").classList.toggle("hit", this.hitTime > 0);
-    $("progress").style.width = `${Math.min(100, this.coins * 5)}%`;
-    $("mission-progress").textContent =
-      this.coins < 20
-        ? `探索目标 · ${this.coins} / 20 枚金币`
-        : `目标完成 · ${this.hits} 个靶标 · ${(this.travel / 1000).toFixed(1)} km`;
-    $("mission-title").textContent = this.driving
-      ? "下一枚，在下个街角。"
-      : "回到街头。";
-    $("mission-copy").textContent = this.driving
-      ? "沿着金色路线前行，或拐进一条陌生的街。"
-      : "找到街边的车，沿着金币探索这座城市。";
-    $("controls").innerHTML = this.driving
-      ? "<kbd>W S</kbd> 油门 / 倒车 <kbd>A D</kbd> 转向 <kbd>SPACE</kbd> 手刹 <kbd>F</kbd> 下车"
-      : "<kbd>W A S D</kbd> 移动 <kbd>SHIFT</kbd> 跑步 <kbd>F</kbd> 上车 <kbd>鼠标</kbd> 瞄准 / 射击";
-    const near =
-      !this.driving &&
-      this.person.root.position.distanceTo(this.car.root.position) < 4.8;
-    $("interaction").style.display = near ? "block" : "none";
-    $("interaction").innerHTML = "<kbd>F</kbd> 驾驶 HARBOR SEDAN";
-    const p = this.activePosition().add(this.city.offset),
-      c = chunkAt(p.x, p.z);
-    $("location").textContent = `BLOCK ${c.x} / ${c.z}`;
-    $("district").textContent = DISTRICT_NAMES[districtAt(this.city.seed, c.x, c.z)];
-    $("perf").textContent =
-      `${Math.round(this.fps)} FPS · ${this.city.chunks.size} BLOCKS`;
+    const p = this.activePosition().add(this.city.offset);
+    const near = !this.driving && !this.flying && this.population.nearestVehicle(this.activePosition());
+    renderHud({
+      coins: this.coins, health: this.health, maxHealth: this.maxHealth,
+      weapon: this.inventory.spec, weaponState: this.weaponState,
+      speed: this.speed, flying: this.flying, driving: this.driving, mode: this.mode,
+      hitTime: this.hitTime, collectedCoins: this.collectedCoins, hits: this.hits, travel: this.travel,
+      nearShop: this.nearShop(), nearHelicopter: !this.driving && !this.flying && this.nearHelicopter(),
+      nearVehicle: !!near, nearDriver: !!near && !!near.driver, entry: !!this.entry,
+      chunk: chunkAt(p.x, p.z), district: DISTRICT_NAMES[worldPlan(this.city.seed).district(p.x, p.z)],
+      fps: this.fps, chunks: this.city.chunks.size,
+    });
     this.canvas.dataset.state = JSON.stringify(this.snapshot());
     this.drawMap();
   }
@@ -811,6 +952,7 @@ export class Game {
       pointerLocked: document.pointerLockElement === this.canvas,
       lockPending: this.lockPending,
       driving: this.driving,
+      flying: this.flying,
       position: { x: logical.x, y: logical.y, z: logical.z },
       local: { x: p.x, z: p.z },
       car: {
@@ -818,6 +960,12 @@ export class Game {
         z: this.carBody.translation().z + this.city.offset.z,
       },
       coins: this.coins,
+      inventory: [...this.inventory.owned.keys()],
+      selectedWeapon: this.inventory.spec.id,
+      nearShop: this.nearShop(),
+      health: this.health,
+      roadkills: this.roadkills,
+      loot: this.population.drops.length,
       ammo: this.weaponState.ammo,
       shots: this.weaponState.shots,
       hits: this.hits,
@@ -837,64 +985,9 @@ export class Game {
     };
   }
   drawMap() {
-    const canvas = $("map") as HTMLCanvasElement,
-      ctx = canvas.getContext("2d")!;
-    const p = this.activePosition().add(this.city.offset),
-      scale = 1.4;
-    ctx.fillStyle = "#c3a773";
-    ctx.fillRect(0, 0, 220, 220);
-    ctx.save();
-    ctx.translate(110, 110);
-    ctx.scale(scale, scale);
-    ctx.translate(-p.x, -p.z);
-    for (const c of this.city.chunks.values()) {
-      const x = c.cx * BLOCK,
-        z = c.cz * BLOCK;
-      ctx.fillStyle = { residential: "#81a653", commercial: "#bc9870", apartments: "#9d9883", industrial: "#899393", park: "#648f50" }[c.layout.district];
-      ctx.fillRect(x + 10, z + 10, 52, 52);
-      ctx.fillStyle = "#57604b";
-      for (const b of c.layout.buildings) ctx.fillRect(x + b.x - b.w / 2, z + b.z - b.d / 2, b.w, b.d);
-      if (c.layout.park) {
-        ctx.fillStyle = "#c9b68f";
-        ctx.fillRect(x + 34, z + 11, 4, 50);
-        ctx.fillRect(x + 11, z + 34, 50, 4);
-        ctx.fillStyle = "#517e88";
-        ctx.fillRect(x + 31, z + 31, 10, 10);
-      }
-      ctx.fillStyle = "#ebc575";
-      for (const coin of c.coins) {
-        ctx.beginPath();
-        ctx.arc(coin.x, coin.z, 1.3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = "#cf694c";
-      for (const target of c.targets)
-        if (target.health > 0) ctx.fillRect(x + 9, z + 34, 2.5, 2.5);
-    }
-    const car = this.carBody.translation();
-    ctx.fillStyle = "#dd8850";
-    ctx.fillRect(
-      car.x + this.city.offset.x - 1.5,
-      car.z + this.city.offset.z - 2.5,
-      3,
-      5,
-    );
-    ctx.restore();
-    ctx.save();
-    ctx.translate(110, 110);
-    ctx.rotate(-(this.driving ? this.carYaw : this.yaw));
-    ctx.fillStyle = "#fff3c4";
-    ctx.strokeStyle = "#23463a";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, -8);
-    ctx.lineTo(5, 6);
-    ctx.lineTo(0, 3);
-    ctx.lineTo(-5, 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    if (!this.atlas) return;
+    const canvas = $("map") as HTMLCanvasElement;
+    this.atlas.draw(canvas.getContext("2d")!, canvas.width, canvas.height, this.activePosition().add(this.city.offset), 1.15, false);
   }
   animate = () => {
     if (this.stopped) return;
@@ -917,20 +1010,32 @@ export class Game {
         this.accumulator -= 1 / 60;
       }
       this.syncModels();
+      this.population.syncModels();
+      this.atlas.tick(dt);
       this.person.update(this.time, this.moving, this.aiming || this.firing);
       for (const wheel of this.car.wheels)
         wheel.rotation.x -= (this.speed * dt) / 0.44;
+      const rotorSpeed = this.flying ? 28 : 3;
+      this.helicopter.rotor.rotation.y += rotorSpeed * dt;
+      this.helicopter.tailRotor.rotation.z += rotorSpeed * 1.7 * dt;
       this.weapon.update(dt, {
         time: this.time,
         moving: this.moving,
-        sprinting: false,
+        sprinting:
+          (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) &&
+          this.moving > 0 && !this.aiming,
         aiming: this.aiming,
         reloading:
           this.weaponState.reloadTime > 0
-            ? 1 - this.weaponState.reloadTime / 2.05
+            ? 1 - this.weaponState.reloadTime / this.inventory.spec.reload
             : 0,
         recoil: this.weaponState.recoil,
       });
+      for (const weapon of this.extraWeapons) {
+        weapon.flashTime = Math.max(0, weapon.flashTime - dt); weapon.flash.visible = weapon.flashTime > 0;
+        weapon.group.position.y = -.04; weapon.group.rotation.x = -this.weaponState.recoil * .06;
+        weapon.group.rotation.z = this.weaponState.reloadTime > 0 ? -.35 : 0;
+      }
       this.weapon.group.position.set(0, -0.04, 0);
       this.weapon.group.rotation.set(
         -this.weaponState.recoil * 0.06,
@@ -945,11 +1050,13 @@ export class Game {
       this.toastTime -= dt;
       this.hitTime -= dt;
       this.pickupTime -= dt;
+      this.damageTime -= dt;
+      document.body.classList.toggle("player-hurt", this.damageTime > 0);
       if (this.toastTime <= 0) $("toast").textContent = "";
       if (this.pickupTime <= 0) $("pickup").textContent = "";
       if (this.engineGain && this.engineOsc && this.sound.ctx) {
         this.engineGain.gain.setTargetAtTime(
-          this.driving ? 0.026 : 0,
+          this.driving ? 0.026 : this.flying ? 0.036 : 0,
           this.sound.ctx.currentTime,
           0.1,
         );
@@ -973,7 +1080,7 @@ export class Game {
     } else if (this.mode === "menu") {
       this.time += dt;
       this.city.animate(dt, this.time);
-      this.camera.position.set(6 + Math.sin(this.time * 0.09) * 1.2, 3, 26);
+      this.camera.position.set(6 + Math.sin(this.time * 0.09) * 1.2, 5, 26);
       this.camera.lookAt(1, 1, -20);
     }
     const anchor = this.activePosition();

@@ -5,6 +5,7 @@ import {
   hashSeed,
   chunkAt,
   BLOCK,
+  worldPlan,
   segmentDistanceSquared,
 } from "../src/generation.ts";
 import { WeaponState } from "../src/combat.ts";
@@ -15,8 +16,8 @@ test("seeded blocks regenerate identically independent of visit order", () => {
   generateBlock(seed, 4, 6);
   assert.deepEqual(first, generateBlock(seed, -12, 31));
   assert.notDeepEqual(
-    first.buildings,
-    generateBlock(hashSeed("other"), -12, 31).buildings,
+    worldPlan(seed).nodes,
+    worldPlan(hashSeed("other")).nodes,
   );
 });
 test("road corridors stay free and coins remain in reachable road lanes across signed coordinates", () => {
@@ -25,11 +26,14 @@ test("road corridors stay free and coins remain in reachable road lanes across s
     for (let z = -10; z <= 10; z++) {
       const block = generateBlock(87, x, z);
       for (const b of block.buildings) {
-        assert.ok(b.x - b.w / 2 > 9 && b.x + b.w / 2 < 63);
-        assert.ok(b.z - b.d / 2 > 9 && b.z + b.d / 2 < 63);
+        const n = worldPlan(87).nearestRoad(x * BLOCK + b.x, z * BLOCK + b.z);
+        assert.ok(n.distance > n.road.width / 2 + Math.hypot(b.w, b.d) / 2, "building overlaps road");
+        assert.ok(!worldPlan(87).isWater(x * BLOCK + b.x, z * BLOCK + b.z));
       }
       for (const c of block.coins) {
-        assert.ok(c.x === 4 || c.z === 4);
+        const n = worldPlan(87).nearestRoad(x * BLOCK + c.x, z * BLOCK + c.z);
+        assert.ok(n.distance < n.road.width / 2);
+        assert.ok(Math.abs(c.y - worldPlan(87).surfaceAt(x * BLOCK + c.x, z * BLOCK + c.z) - 1) < 0.2);
         assert.ok(!ids.has(c.id));
         ids.add(c.id);
       }

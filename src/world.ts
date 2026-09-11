@@ -1,7 +1,8 @@
 import * as T from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
-import { BLOCK, generateBlock, chunkAt } from "./generation";
+import { BLOCK, generateBlock, chunkAt, worldPlan } from "./generation";
 import { boxGeo, mat } from "./models";
+import { buildLandscape } from "./landscape";
 import { surfaceTexture, palmAssets } from "./retro";
 type Coin = { id: string; mesh: T.Mesh; x: number; z: number };
 type Target = {
@@ -48,6 +49,7 @@ export class City {
   targetGeo = new T.BoxGeometry(0.85, 1.35, 0.18);
   signs: T.MeshBasicMaterial[] = [];
   palm = palmAssets();
+  pineGeo = new T.ConeGeometry(1, 1, 7);
   roofGeo = new T.ConeGeometry(Math.SQRT1_2, 1, 4).rotateY(Math.PI / 4);
   roofMat = mat(0x746041);
   leafMat = new T.MeshStandardMaterial({
@@ -132,6 +134,12 @@ export class City {
     const data = chunk.layout;
     const batches = new Map<number, T.Matrix4[]>();
     const dummy = new T.Object3D();
+    let placement: { x: number; z: number; y: number; yaw: number } | null = null;
+    const placed = (x: number, y: number, z: number) => {
+      const v = new T.Vector3(x, y, z);
+      if (placement) { v.x -= placement.x; v.z -= placement.z; v.applyAxisAngle(new T.Vector3(0, 1, 0), placement.yaw); v.x += placement.x; v.z += placement.z; v.y += placement.y; }
+      return v;
+    };
     const add = (
       m: number,
       w: number,
@@ -141,8 +149,8 @@ export class City {
       y: number,
       z: number,
     ) => {
-      dummy.position.set(x, y, z);
-      dummy.rotation.set(0, 0, 0);
+      dummy.position.copy(placed(x, y, z));
+      dummy.rotation.set(0, placement?.yaw ?? 0, 0);
       dummy.scale.set(w, h, d);
       dummy.updateMatrix();
       if (!batches.has(m)) batches.set(m, []);
@@ -156,12 +164,10 @@ export class City {
       h: number,
       d: number,
     ) => {
+      const p = placed(x, y, z);
       const body = this.physics.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(
-          root.position.x + x,
-          y,
-          root.position.z + z,
-        ),
+        RAPIER.RigidBodyDesc.fixed().setTranslation(root.position.x + p.x, p.y, root.position.z + p.z)
+          .setRotation(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), placement?.yaw ?? 0)),
       );
       this.physics.createCollider(
         RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2),
@@ -170,15 +176,7 @@ export class City {
       chunk.bodies.push(body);
     };
 
-    // Each tile owns its west/north road. All road centres align globally.
-    add(0, BLOCK, 0.18, BLOCK, 27, -0.1, 27);
-    add(1, 54, 0.24, 54, 36, 0.02, 36);
-    add(2, 54, 0.05, 0.24, 36, 0.16, 9);
-    add(2, 0.24, 0.05, 54, 9, 0.16, 36);
-    for (let p = 12; p < 72; p += 9) {
-      add(2, 0.12, 0.012, 4, 0, 0.002, p);
-      add(2, 4, 0.012, 0.12, p, 0.002, 0);
-    }
+    buildLandscape(root, chunk.bodies, this.physics, worldPlan(this.seed), cx, cz);
     const palm = (x: number, z: number, height: number) => {
       const trunk = new T.Mesh(this.palm.bark, this.materials[12]);
       trunk.scale.y = height;
@@ -195,12 +193,14 @@ export class City {
       collider(x, height / 2, z, 0.5, height, 0.5);
     };
     data.buildings.forEach((b, i) => {
+      placement = b;
+      const firstChild = root.children.length;
       const front = b.z - b.d / 2,
         west = b.x - b.w / 2;
       // Lawn and narrow walkways surround detached houses.
-      add(b.style === "house" ? 11 : 1, 24, 0.04, 24, b.x, 0.17, b.z);
-      add(1, 2.1, 0.055, Math.max(1, front - 10), b.x, 0.2, (front + 10) / 2);
-      add(1, Math.max(1, west - 10), 0.055, 2.1, (west + 10) / 2, 0.2, b.z);
+      add(b.style === "house" ? 11 : 1, b.w + 3, 0.12, b.d + 3, b.x, 0.08, b.z);
+      add(1, 2.1, 0.055, 3, b.x, 0.2, front - 1.5);
+      add(1, 3, 0.055, 2.1, west - 1.5, 0.2, b.z);
       add(3 + b.color, b.w, b.h, b.d, b.x, b.h / 2 + 0.2, b.z);
       collider(b.x, b.h / 2, b.z, b.w, b.h, b.d);
       add(12, b.w + 0.5, 0.22, b.d + 0.5, b.x, b.h + 0.2, b.z);
@@ -291,61 +291,38 @@ export class City {
         sign.position.set(west - 1.5, 3.25, b.z);
         root.add(sign);
       }
-      if (i % 2 === 0) palm(b.x + 10, b.z + 8, 12 + ((i + data.sign) % 5));
+      for (const child of root.children.slice(firstChild)) {
+        child.position.copy(placed(child.position.x, child.position.y, child.position.z));
+        child.quaternion.premultiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), b.yaw));
+      }
+      placement = null;
     });
-    if (data.park) {
-      add(11, 50, 0.08, 50, 36, 0.18, 36);
-      add(1, 5, 0.08, 50, 36, 0.24, 36);
-      add(1, 50, 0.08, 5, 36, 0.24, 36);
-      add(10, 10, 0.5, 10, 36, 0.45, 36);
-      add(9, 8.8, 0.08, 8.8, 36, 0.72, 36);
-      collider(36, 0.45, 36, 10, 0.9, 10);
-      add(10, 1, 2, 1, 36, 1.6, 36);
-      for (const x of [20, 52]) for (const z of [20, 52]) {
-        add(12, 0.7, 4, 0.7, x, 2.2, z);
-        add(11, 5, 3, 5, x, 5, z);
-        add(13, 3.5, 2, 3.5, x, 7, z);
-        collider(x, 2, z, 0.7, 4, 0.7);
-      }
-      for (const x of [28, 44]) for (const z of [23, 49]) {
-        add(12, 3, 0.18, 0.8, x, 0.8, z);
-        add(12, 3, 0.65, 0.15, x, 1.1, z + 0.4);
-        for (const dx of [-1, 1]) add(14, 0.15, 0.6, 0.65, x + dx, 0.4, z);
-      }
-    }
     // Mark the kerbside parking bay, leaving both moving lanes clear.
-    for (const z of [39.8, 46.2]) add(10, 2.6, 0.02, 0.12, 7, 0.015, z);
-    add(10, 0.12, 0.02, 6.4, 5.7, 0.015, 43);
     // Pavement lamps, bins and zebra crossings give each block a street edge.
-    for (const z of [16, 58]) {
-      add(14, 0.15, 5.6, 0.15, 61, 2.9, z);
-      add(10, 1.1, 0.2, 0.7, 61, 5.7, z);
-      add(13, 0.7, 1, 0.7, 59.8, 0.7, z);
-    }
-    for (let x = -7; x <= 7; x += 2) add(10, 1, 0.02, 2.8, x, 0.015, 11);
-    for (const z of [19, 55]) {
-      palm(11.2, z, 13 + (data.sign % 4));
-    }
     // Utility poles and sagging wires frame the residential avenues.
-    add(12, 0.24, 9, 0.24, 10.3, 4.5, 9.5);
-    add(12, 2.6, 0.13, 0.13, 10.3, 8.5, 9.5);
-    for (const x of [9.4, 11.2]) {
-      const path = new T.QuadraticBezierCurve3(
-        new T.Vector3(x, 8.6, 9.5),
-        new T.Vector3(x, 6.2, 45.5),
-        new T.Vector3(x, 8.6, 81.5),
-      );
-      const wire = new T.Mesh(
-        new T.TubeGeometry(path, 12, 0.025, 3, false),
-        this.materials[14],
-      );
-      root.add(wire);
+    // The generated roadside/landscape props now replace the former fixed block positions.
+    for (const tree of data.trees) {
+      placement = { x: tree.x, z: tree.z, y: tree.y, yaw: 0 };
+      const firstChild = root.children.length;
+      if (data.district === "hills") {
+        const trunk = new T.Mesh(this.palm.bark, this.materials[12]);
+        trunk.scale.y = tree.height * 0.7; trunk.position.set(tree.x, tree.height * 0.35, tree.z); trunk.userData.sharedGeometry = true; root.add(trunk);
+        for (let tier = 0; tier < 3; tier++) {
+          const crown = new T.Mesh(this.pineGeo, this.leafMat);
+          crown.scale.set(2.8 - tier * 0.65, tree.height * 0.55, 2.8 - tier * 0.65); crown.userData.sharedGeometry = true;
+          crown.position.set(tree.x, tree.height * (0.45 + tier * 0.2), tree.z); crown.castShadow = true; root.add(crown);
+        }
+        collider(tree.x, tree.height * 0.35, tree.z, 0.6, tree.height * 0.7, 0.6);
+      } else palm(tree.x, tree.z, tree.height);
+      for (const child of root.children.slice(firstChild)) child.position.y += tree.y;
+      placement = null;
     }
     data.coins.forEach((c) => {
       if (this.collected.has(c.id)) return;
       const mesh = new T.Mesh(this.coinGeo, this.coinMat);
       mesh.rotation.z = Math.PI / 2;
-      mesh.position.set(c.x, 1, c.z);
+      mesh.position.set(c.x, c.y, c.z);
+      mesh.userData.baseY = c.y;
       root.add(mesh);
       chunk.coins.push({
         id: c.id,
@@ -356,9 +333,11 @@ export class City {
     });
     // A road-facing practice target on the pavement, safely away from traffic.
     const id = `${key}:target`;
-    if (!this.defeated.has(id)) {
+    if (!this.defeated.has(id) && data.coins.length > 0) {
       const g = new T.Group();
-      g.position.set(10.2, 0.15, 35);
+      const plan = worldPlan(this.seed), near = plan.nearestRoad(cx * BLOCK + 36, cz * BLOCK + 36);
+      const p = plan.sampleRoad(near.road, near.along, near.road.width / 2 + 2.5);
+      g.position.set(p.x - cx * BLOCK, p.y, p.z - cz * BLOCK);
       root.add(g);
       const mesh = new T.Mesh(this.targetGeo, this.targetMat);
       mesh.position.y = 1.5;
@@ -371,8 +350,8 @@ export class City {
       bull.position.set(-0.105, 1.55, 0);
       bull.rotation.y = -Math.PI / 2;
       g.add(bull);
-      add(14, 0.25, 0.9, 0.25, 10.2, 0.55, 35);
-      add(14, 0.8, 0.12, 0.8, 10.2, 0.2, 35);
+      add(14, 0.25, 0.9, 0.25, g.position.x, p.y + 0.45, g.position.z);
+      add(14, 0.8, 0.12, 0.8, g.position.x, p.y + 0.06, g.position.z);
       const target = { id, root: g, mesh, health: 100, down: 0 };
       mesh.userData.target = target;
       chunk.targets.push(target);
@@ -388,19 +367,30 @@ export class City {
       mesh.receiveShadow = true;
       root.add(mesh);
     }
+    // Repeated tree, roof and roadside parts share draw calls within a streamed chunk.
+    const shared = new Map<string, T.Mesh[]>();
+    for (const child of root.children) if (child instanceof T.Mesh && !(child instanceof T.InstancedMesh) && !Array.isArray(child.material) && (child.userData.sharedGeometry || child.geometry === boxGeo)) {
+      const id = `${child.geometry.uuid}:${child.material.uuid}`;
+      if (!shared.has(id)) shared.set(id, []); shared.get(id)!.push(child);
+    }
+    for (const group of shared.values()) if (group.length > 1) {
+      const batch = new T.InstancedMesh(group[0].geometry, group[0].material, group.length);
+      group.forEach((mesh, i) => { mesh.updateMatrix(); batch.setMatrixAt(i, mesh.matrix); root.remove(mesh); });
+      batch.castShadow = group.some(m => m.castShadow); batch.receiveShadow = true; batch.userData.sharedGeometry = true; root.add(batch);
+    }
     this.generated++;
   }
   update(pos: T.Vector3, force = false) {
     const c = chunkAt(pos.x + this.offset.x, pos.z + this.offset.z);
     const needed: { x: number; z: number; dist: number }[] = [];
-    for (let x = c.x - 2; x <= c.x + 2; x++)
-      for (let z = c.z - 2; z <= c.z + 2; z++)
+    for (let x = c.x - 3; x <= c.x + 3; x++)
+      for (let z = c.z - 3; z <= c.z + 3; z++)
         if (!this.chunks.has(`${x},${z}`))
           needed.push({ x, z, dist: (x - c.x) ** 2 + (z - c.z) ** 2 });
     needed.sort((a, b) => a.dist - b.dist);
-    for (const n of needed.slice(0, force ? 25 : 2)) this.create(n.x, n.z);
+    for (const n of needed.slice(0, force ? 49 : 2)) this.create(n.x, n.z);
     for (const chunk of this.chunks.values())
-      if (Math.abs(chunk.cx - c.x) > 2 || Math.abs(chunk.cz - c.z) > 2)
+      if (Math.abs(chunk.cx - c.x) > 3 || Math.abs(chunk.cz - c.z) > 3)
         this.remove(chunk);
   }
   remove(chunk: Chunk) {
@@ -442,18 +432,14 @@ export class City {
   }
   get occluders() {
     return [...this.chunks.values()].flatMap((c) =>
-      c.root.children.filter(
-        (o) =>
-          o instanceof T.InstancedMesh ||
-          (o instanceof T.Mesh && o.userData.sharedGeometry),
-      ),
+      c.root.children.filter(o => !c.coins.some(coin => coin.mesh === o) && !c.targets.some(target => target.root === o)),
     );
   }
   animate(dt: number, time: number) {
     for (const c of this.chunks.values()) {
       for (const coin of c.coins) {
         coin.mesh.rotation.y = time * 1.8;
-        coin.mesh.position.y = 1 + Math.sin(time * 3 + coin.x) * 0.12;
+        coin.mesh.position.y = (coin.mesh.userData.baseY ?? 1) + Math.sin(time * 3 + coin.x) * 0.12;
       }
       for (const target of c.targets)
         if (target.health <= 0) {

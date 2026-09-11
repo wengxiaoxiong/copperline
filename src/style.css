@@ -821,3 +821,38 @@ button#resume {
     left: 56px;
   }
 }
+
+#atlas { position: fixed; inset: 20px; z-index: 100; background: #233f38; border: 1px solid #b8ab85; box-shadow: 0 20px 100px #000c; color: #f0e5cc; display: flex; flex-direction: column; }
+#atlas[hidden] { display: none; }
+.atlas-top, .atlas-bottom { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 26px; flex: 0 0 auto; background: #243b33; }
+.atlas-top h2 { margin: 7px 0 4px; font: 28px Georgia, serif; }
+.atlas-top p { font-size: 11px; margin: 0; color: #b6b89b; }
+#atlas button { width: auto; margin: 0; padding: 11px 17px; background: #d5bc86; color: #263c33; border: 0; border-radius: 2px; cursor: pointer; }
+#atlas button:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+#world-map { display: block; flex: 1 1 auto; min-height: 0; width: 100%; cursor: grab; touch-action: none; }
+#world-map:active { cursor: grabbing; }
+.atlas-bottom strong { font-size: 14px; font-weight: 500; }
+.atlas-bottom small { display: block; margin-top: 7px; color: #b8bda4; font-size: 11px; }
+.atlas-bottom > div:last-child { display: flex; gap: 10px; }
+@media (max-width: 700px) { #atlas { inset: 6px; } .atlas-top, .atlas-bottom { padding: 12px; gap: 10px; } .atlas-top h2 { font-size: 20px; } .atlas-bottom { flex-wrap: wrap; } #atlas button { padding: 10px; font-size: 11px; } }
+@media (max-height: 550px) {
+  .atlas-top, .atlas-bottom { padding: 10px 16px; }
+  .atlas-top h2 { font-size: 19px; margin: 3px 0; }
+  .atlas-top .eyebrow, .atlas-bottom small { display: none; }
+}
+/* Red vignette when a pedestrian lands a melee hit. */
+body.player-hurt #hud { box-shadow: inset 0 0 150px #c22a1666; }
+body.player-hurt .retro-bars span { background: #d1493b; }
+
+#equipment-panel { position: fixed; inset: 0; z-index: 40; background: #10221be8; display: grid; place-items: center; padding: 24px; backdrop-filter: blur(12px); }
+#equipment-panel[hidden] { display: none; }
+.armory-card { width: min(880px, 100%); max-height: calc(100dvh - 48px); min-height: 0; overflow: auto; color: #f7ecd4; }
+.armory-card h2 { font-size: 36px; margin: 12px 0; }
+.armory-card p { line-height: 1.8; color: #c9cbb7; }
+#equipment-items { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0; }
+.weapon-card { text-align: left; display: flex; flex-direction: column; gap: 16px; padding: 22px 16px; color: #f7ecd4; background: #ffffff08; border: 1px solid #ffffff30; cursor: pointer; }
+.weapon-card.selected { border-color: #f0c575; background: #f0c57518; }
+.weapon-card strong { font-size: 19px; }.weapon-card span,.weapon-card small { font-size: 12px; line-height: 1.6; }.weapon-card b { color: #f0c575; font-size: 13px; margin-top: auto; }
+.weapon-card:disabled { opacity: .5; cursor: default; } .weapon-card:focus-visible { outline: 2px solid #fff; }
+#equipment-message { min-height: 28px; color: #ffd180; } #equipment-close { padding: 14px 22px; background: #f0c575; color: #20382b; border: 0; cursor: pointer; }
+@media (max-width: 680px) { #equipment-items { grid-template-columns: repeat(2, 1fr); } .weapon-card { padding: 12px; gap: 8px; } }

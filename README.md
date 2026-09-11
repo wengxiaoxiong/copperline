@@ -32,32 +32,38 @@ The game starts only after the browser grants **Pointer Lock**, which hides the 
 | Action | Control |
 | --- | --- |
 | Move / accelerate, reverse, steer | WASD |
-| Sprint | Shift |
+| Sprint (about 2.5× walking speed) | Shift |
 | Jump / handbrake while driving | Space |
-| Enter or exit the nearby car | F; slow down before exiting |
+| Enter, exit or take over a nearby car | F; wait for low speed before entering, stop before exiting |
 | Fire / shoulder aim | Left / right mouse button |
 | Reload | R |
 | Pause / release mouse | Esc |
 | Return to a nearby road | V |
-| Mute / unmute | M |
+| World map | M; wheel to zoom, drag to pan, click a road to navigate |
+| First-/third-person view | C |
+| Mute / unmute | N |
 
-The orange sedan is ahead of the spawn point. Walk or drive through gold coins to collect them. Red roadside practice targets take three ordinary hits. The MR-17 has a 30-round magazine and unlimited reserve ammunition, with a reload delay.
+The orange sedan is ahead of the spawn point. Walk or drive through gold coins to collect them. Defeated pedestrians also spill coins, so drive over or walk through the drop before it streams out. Red roadside practice targets take three ordinary hits. The MR-17 has a 30-round magazine and unlimited reserve ammunition, with a reload delay.
+
+The street is hostile: pedestrians within about 34 metres charge the player and land melee hits, draining the health bar above the ammo bar. At zero health the player is returned to a nearby road with health restored. Traffic and the player's own car will run pedestrians down, which kills them and drops their loot.
 
 ## What's implemented
 
-- Third-person character movement, camera collision avoidance, shoulder aiming, and vehicle follow camera.
-- One arcade-style sedan with rigid-body collisions and continuous collision detection.
-- BLACKWATER's procedural MR-17 weapon and synthesized audio, adapted for third-person use. Camera aiming and muzzle obstruction use separate ray origins.
-- Deterministic 72-meter neighborhood tiles, seeded by world name and signed tile coordinates.
-- A nearby 5 × 5 tile window; distant geometry and physics bodies are unloaded. Local coordinates are rebased during long trips.
-- Collected coins and defeated targets stay removed when revisiting a tile in the same run. Refreshing or restarting clears progress.
-- Houses, yards, porches, palm trees, utility wires, procedural textures, minimap, ammunition and coin counters.
+- Third-person movement, camera obstruction, shoulder aiming and vehicle follow camera. Sprinting is roughly 2.5× walking speed.
+- Nearby vehicles share one ownership and driving model. Taking over traffic opens a door and makes its driver flee, preserving the vehicle body, paint and parked position.
+- Pedestrians react to gunshots, take damage and fall when defeated, dropping collectible coins. Nearby pedestrians turn hostile, chase the player and attack in melee; a moving vehicle knocks them down on contact. Camera and muzzle rays resolve the closest obstruction, including traffic and pedestrians.
+- A seeded coast, river and hills determine connected roads, bridges, roadside building placement and eight districts. Landmarks include a water tower, lighthouse, harbor crane and plaza.
+- 72-meter streaming tiles with a nearby 7 × 7 window. Curved roads cross tile boundaries; terrain and bridge colliders match road elevation.
+- A shared world atlas and minimap, with zoom, pan, player and driven-vehicle markers, and road-based navigation. Opening the atlas pauses gameplay; returning requests pointer lock again.
+- Changed NPCs, driven vehicles, collected coins and defeated targets persist during a run, including across streaming and origin shifts. Restarting or refreshing resets progress.
 
 ## Scope and limitations
 
-This is a functional low-poly demo. There is no traffic simulation, pedestrian/enemy AI, police pursuit, multiplayer, interior exploration, story campaign, or shooting from inside the car. Character animation and vehicle handling are simplified. The clock and decorative HUD bars are visual elements, not a day/night cycle or damage system.
+The current seed generates one coastal city roughly 1.5 km wide. Terrain continues outside the city, but its road network is bounded. Police pursuit, multiplayer, interiors, story missions, swimming and in-car shooting are not implemented. Entering deep water recovers the player to a nearby road.
 
-Visible world resources are limited to the neighborhood window. Collected-ID history grows with exploration, so unlimited total-session memory is not guaranteed. Google Fonts is requested for interface typography, with local fallback fonts; gameplay does not require a backend.
+Traffic follows the road graph, brakes and waits at intersections. Character animation and vehicle handling remain simplified. The clock and decorative bars are visual elements. M now opens the map; mute moved to N.
+
+Nearby geometry is streamed out; driven vehicles and changed NPC records accumulate during the run. Unlimited session memory is not guaranteed. Gameplay needs no backend; external fonts have local fallbacks.
 
 ## Build and validation
 
@@ -69,11 +75,11 @@ npm run preview
 
 `npm run build` runs TypeScript checking and creates `dist/` for static hosting.
 
-The 10 automated tests cover deterministic generation, reachable coin placement, negative tile coordinates, swept pickups, weapon timing and reloads, high-speed collision, pointer-lock failure/retry behavior, and camera stability during sustained shooting. One regression test invokes the actual `Game.fire()` and `Game.updateCamera()` methods and verifies that firing never overwrites the camera position.
+18 automated tests cover deterministic generation, road connectivity and routing, road clearance, landmark placement, bridge colliders, reachable coins, signed coordinates, swept pickups, weapon timing, NPC hits and persistence, vehicle identity and streaming, map pause and pointer-lock failure/retry, and camera stability during firing.
 
-A previous browser scenario advanced approximately 3.8 km of driving using fixed physics steps, checking streaming, rebasing, pickups and obstruction. This is a simulation check, **not a real-time FPS benchmark**. The residential visual update has passed the automated tests and build; the full long-distance browser scenario has not been repeated after that update.
+`scripts/city-scenario.js` runs actual Game methods and Rapier physics through the dev-only `window.__game` handle. `cityScenario(game)` checks entry, driving, exit, takeover, driver flight, shooting and navigation. `roadDrivingScenario(game)` traverses a 155 m slope and 139 m bridge. `cityRouteScenario(game)` advances a route in batches; pass `true` on subsequent calls until `done: true`. A roughly 1.55 km residential-to-harbor-to-coast route passed with 49 nearby chunks. Ordinary traffic is cleared for this road-clearance scenario.
 
-`scripts/browser-scenario.js` exports `browserScenario` for a developer-controlled browser page. Its scene positioning is intentional, and it requires the dev-only `window.__game` handle. It is not included in the production API.
+These developer scripts reposition the scene. They are **not real-time FPS or complete keyboard/mouse acceptance tests**. The embedded browser rejected pointer lock; its failure/retry handling is covered, and Chrome or Edge is recommended for play. The older `scripts/browser-scenario.js` retains checks for the previous grid world and does not apply to this road network.
 
 ## Project layout
 
@@ -81,7 +87,10 @@ A previous browser scenario advanced approximately 3.8 km of driving using fixed
 src/game.ts                 Input, physics, gameplay and HUD
 src/camera-rig.ts           Camera boom, aim transition and recoil
 src/world.ts                Tile rendering, streaming and resource lifecycle
-src/generation.ts           Deterministic layout and pickup geometry
+src/generation.ts           Geography, road graph, lots and navigation
+src/landscape.ts            Terrain, bridges, landmarks and colliders
+src/population.ts           NPC state and vehicle ownership
+src/atlas.ts                World map, minimap and navigation UI
 src/models.ts               Procedural character and vehicle
 src/retro.ts                Surface textures and palm geometry
 src/combat.ts               Weapon state and timing

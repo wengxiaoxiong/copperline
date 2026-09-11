@@ -70,3 +70,18 @@ test("pointer lock failure keeps gameplay paused, and retry waits for actual loc
     });
   }
 });
+test("opening map clears gameplay input and closing still requires successful pointer lock", async () => {
+  const oldDocument=globalThis.document,oldWindow=globalThis.window;
+  let exited=false,opened=false,closed=false;
+  const elements=new Map([['lock-status',{hidden:true}],['paused',{hidden:true}]]);
+  const doc={pointerLockElement:{} as unknown,getElementById:(id:string)=>elements.get(id),body:{classList:{remove(){}}},exitPointerLock(){exited=true;this.pointerLockElement=null;}};
+  Object.defineProperty(globalThis,'document',{value:doc,writable:true,configurable:true});
+  Object.defineProperty(globalThis,'window',{value:{setTimeout:()=>0},writable:true,configurable:true});
+  try{
+    const g=Object.create(Game.prototype) as Game;g.mode='playing';g.keys=new Set(['KeyW']);g.firing=true;g.aiming=true;g.engineGain=null;
+    g.atlas={open(){opened=true;},close(){closed=true;}} as unknown as Game['atlas'];
+    g.openMap();assert.equal(g.mode,'map');assert.ok(opened&&exited);assert.equal(g.keys.size,0);assert.equal(g.firing,false);
+    g.lockAttempt=0;g.lockPending=false;g.canvas={focus(){},requestPointerLock:()=>Promise.reject(new Error('denied'))} as unknown as HTMLCanvasElement;
+    g.start();await Promise.resolve();assert.equal(g.mode,'paused');assert.ok(closed);assert.equal(elements.get('lock-status')!.hidden,false);
+  }finally{Object.defineProperty(globalThis,'document',{value:oldDocument,writable:true,configurable:true});Object.defineProperty(globalThis,'window',{value:oldWindow,writable:true,configurable:true});}
+});

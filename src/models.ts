@@ -99,7 +99,52 @@ export function createCar(color = 0xc0753c) {
       g.add(hub);
       wheels.push(g);
     }
-  return { root, wheels };
+  const door = new T.Group();
+  door.position.set(-0.97, 0, -0.8);
+  root.add(door);
+  box(door, 0.055, 0.58, 1.4, 0, 0.84, 0.7, paint);
+  box(door, 0.065, 0.055, 0.2, -0.04, 1.05, 1.2, chrome);
+  return { root, wheels, door };
+}
+export function createHelicopter(color = 0x4f725e) {
+  const root = new T.Group(),
+    paint = mat(color, 0.4),
+    dark = mat(0x172522, 0.58),
+    glass = mat(0x294a50, 0.18),
+    metal = mat(0xb8b49d, 0.35);
+  const cabin = new T.Mesh(new T.SphereGeometry(1, 14, 9), paint);
+  cabin.scale.set(1.25, 0.95, 1.7);
+  cabin.position.y = 1.35;
+  cabin.castShadow = true;
+  root.add(cabin);
+  const windshield = new T.Mesh(new T.SphereGeometry(1.01, 14, 9, 0, Math.PI * 2, 0, Math.PI * 0.48), glass);
+  windshield.scale.set(1.12, 0.82, 1.55);
+  windshield.position.set(0, 1.52, -0.22);
+  windshield.rotation.x = -0.18;
+  root.add(windshield);
+  box(root, 0.48, 0.48, 4.8, 0, 1.38, 3.1, paint);
+  box(root, 0.12, 1.65, 0.16, 0, 2.05, 5.35, paint).rotation.x = -0.18;
+  box(root, 1.35, 0.16, 0.18, 0, 2.55, 5.4, paint);
+  for (const x of [-0.78, 0.78]) {
+    box(root, 0.1, 0.1, 3.5, x, 0.25, 0.35, metal);
+    const front = box(root, 0.08, 0.65, 0.08, x, 0.52, -1.05, metal);
+    front.rotation.x = -0.28;
+    const rear = box(root, 0.08, 0.65, 0.08, x, 0.52, 1.55, metal);
+    rear.rotation.x = 0.28;
+  }
+  const rotor = new T.Group();
+  rotor.position.set(0, 2.62, 0.25);
+  root.add(rotor);
+  box(rotor, 8.8, 0.055, 0.16, 0, 0, 0, dark);
+  box(rotor, 0.16, 0.055, 8.8, 0, 0, 0, dark);
+  box(root, 0.14, 0.5, 0.14, 0, 2.35, 0.25, metal);
+  const tailRotor = new T.Group();
+  tailRotor.position.set(0.32, 2.15, 5.38);
+  tailRotor.rotation.y = Math.PI / 2;
+  root.add(tailRotor);
+  box(tailRotor, 0.1, 1.5, 0.08, 0, 0, 0, dark);
+  box(tailRotor, 0.1, 0.08, 1.5, 0, 0, 0, dark);
+  return { root, rotor, tailRotor };
 }
 export function createPerson(shirtColor = 0x24241e) {
   const root = new T.Group(),

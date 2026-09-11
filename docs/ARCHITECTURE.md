@@ -6,7 +6,7 @@
 
 这是一个运行在浏览器主线程中的 TypeScript 游戏，使用 Vite 构建、Three.js 渲染、Rapier WASM 处理物理。界面是 HTML/CSS 与直接 DOM 操作；虽然包名是 `react-gta`，当前没有 React，也没有后端、数据库或多人同步服务。
 
-整体采用 `Game` 集中调度、功能模块提供能力的结构，并非 ECS 或独立服务架构。世界生成规则与呈现已有明确分离，玩法编排与界面仍高度集中。
+整体采用 `Game` 集中调度、功能模块提供能力的结构，并非 ECS 或独立服务架构。世界生成规则与呈现已有明确分离，玩法编排仍集中在 Game；HUD 和装备面板通过独立呈现模块更新。
 
 ```mermaid
 flowchart TD
@@ -18,6 +18,8 @@ flowchart TD
   Game --> Inventory[Inventory 武器与购买]
   Inventory --> WeaponState[WeaponState 时序]
   Game --> CameraRig[CameraRig 镜头姿态]
+  Game --> Presentation[hud / equipment-panel 呈现]
+  Game --> Targeting[targeting 双射线命中]
   City --> Landscape[buildLandscape 地形与碰撞]
   City --> Plan[WorldPlan / generateBlock]
   Landscape --> Plan
@@ -34,12 +36,14 @@ flowchart TD
 | 文件 | 当前职责 | 主要边界 |
 | --- | --- | --- |
 | [main.ts](../src/main.ts) | 等待 Rapier 初始化、创建 Game、启动失败提示 | 仅开发模式暴露 `window.__game` |
-| [game.ts](../src/game.ts) | 场景与物理世界、输入、模式切换、步行/驾驶/飞行、射击、拾取、HUD、音效编排 | 拥有整个会话，协调其他模块 |
+| [game.ts](../src/game.ts) | 场景与物理世界、输入、模式切换、步行/驾驶/飞行、射击结果、拾取、界面数据和音效编排 | 拥有整个会话，协调其他模块 |
 | [generation.ts](../src/generation.ts) | 种子随机、地理高度、区域、道路图、道路采样、导航、建筑与金币布局 | 不依赖 DOM、Three.js 或 Rapier |
 | [world.ts](../src/world.ts) | `City`：创建/卸载区块、静态建筑、金币与靶标、世界偏移 | 持有加载资源以及已拾取/已击倒集合 |
 | [landscape.ts](../src/landscape.ts) | 地形、水面、道路、桥梁和地标的模型及碰撞 | 读取同一 WorldPlan，向区块登记刚体 |
 | [population.ts](../src/population.ts) | 行人和车流生成、行为、伤害、掉落、车辆接管、实例化呈现 | 拥有角色身份和车辆控制权，通过回调伤害玩家 |
 | [inventory.ts](../src/inventory.ts) | 武器参数、拥有关系、购买与装备 | 每把已拥有武器持有独立 WeaponState；钱包由 Game 持有 |
+| [hud.ts](../src/hud.ts) / [equipment-panel.ts](../src/equipment-panel.ts) | HUD 与装备列表呈现 | 接收所需数据与 DOM，不接收 Game，不修改玩法状态 |
+| [targeting.ts](../src/targeting.ts) | 相机瞄准、散布与枪口遮挡 | 返回命中结果；调用方先更新场景矩阵，模块不扣血或播放特效 |
 | [combat.ts](../src/combat.ts) | 弹匣、射击冷却、换弹、后坐力状态 | 不负责命中判定，也不依赖渲染或 DOM |
 | [camera-rig.ts](../src/camera-rig.ts) | 第一/第三人称姿态、支臂、瞄准过渡、后坐力偏移 | 场景避障与最终相机应用在 Game 中 |
 | [atlas.ts](../src/atlas.ts) | Canvas 2D 大小地图、平移缩放、导航、探索记录 | 通过状态回调获取世界坐标；关闭交给 Game |
@@ -85,9 +89,9 @@ flowchart TD
 
 Population 管理 NPC 与车辆的运行时对象、实例化网格和命中身份映射。普通车流沿 WorldPlan 道路移动，车辆接管通过 `beginEntry()`、`takeControl()`、`leave()` 转移控制权，保留同一车辆身份与刚体。已接管车辆与普通车流的卸载策略不同。
 
-射击逻辑在 `Game.fire()`：先通过 WeaponState 检查冷却、弹药等条件，再从相机射线确定瞄准点，最后从枪口发射第二条射线决定实际命中。遮挡候选包括城市、靶标和 Population 对象。命中 NPC 交给 Population，靶标击倒记录交给 City；射击不是 Rapier 子弹刚体模拟。
+`Game.fire()` 通过 WeaponState 检查冷却、弹药等条件，再调用 `traceShot()` 从相机射线确定瞄准点，从枪口发射第二条射线决定实际命中。`traceShot()` 可注入随机数函数以验证散布行为，并返回 hit、muzzle、impact，伤害及特效仍由 Game 编排。遮挡候选包括城市、靶标和 Population 对象。命中 NPC 交给 Population，靶标击倒记录交给 City；射击不是 Rapier 子弹刚体模拟。
 
-Inventory 保存拥有的武器与当前槽位。`buy(slot, coins)` 返回购买结果和新余额，由 Game 应用到钱包；购买成功立即装备，重复购买不扣款。切枪保留各自弹药及换弹状态，固定步进会更新所有已拥有武器，因此后台武器也会完成换弹。商店和物品栏 DOM 由 Game 渲染，商店模型在 armory 中创建。
+Inventory 保存拥有的武器与当前槽位。`buy(slot, coins)` 返回购买结果和新余额，由 Game 应用到钱包；购买成功立即装备，重复购买不扣款。切枪保留各自弹药及换弹状态，固定步进会更新所有已拥有武器，因此后台武器也会完成换弹。商店和物品栏 DOM 由 equipment-panel 渲染，购买事件及余额更新由 Game 处理，商店模型在 armory 中创建。
 
 ## 状态生命周期与资源
 
@@ -110,13 +114,13 @@ City 卸载会移除区块刚体并回收区块独占几何/材质，共享资�
 
 现有结构适合快速迭代单人原型：生成规则可脱离浏览器测试，City 与 Population 分别拥有静态和动态对象，WorldPlan 让地图、道路和车流使用相同数据。
 
-主要压力在 `Game`：它同时拥有输入、DOM、移动、战斗和会话状态，新增模式需要修改多个条件分支。测试也经常用 `Object.create(Game.prototype)` 配合替身绕开完整构造，这降低了测试启动成本，但暴露了初始化与玩法耦合。
+主要压力在 `Game`：它仍拥有输入、模式切换 DOM、移动、战斗结果和会话状态，新增模式需要修改多个条件分支。测试也经常用 `Object.create(Game.prototype)` 配合替身绕开完整构造，这降低了测试启动成本，但暴露了初始化与玩法耦合。
 
 后续可按实际需求渐进调整：
 
-1. 优先分离输入/模式切换与 HUD 呈现，保留 Game 作为会话调度入口。
+1. HUD 和装备呈现、双射线计算已拆出；后续可继续分离输入/模式切换，保留 Game 作为会话调度入口。
 2. 为步行、汽车和直升机明确进入、退出、更新契约，减少布尔状态组合。
 3. 新增可流式对象时明确创建、卸载、原点平移、reset 的责任；若要反复创建 Game，还需补完整事件监听与渲染/音频资源销毁流程。
 4. 做存档时单独定义逻辑 ID 和可序列化状态，不直接序列化 Three.js 或 Rapier 对象。
 
-这些是演进建议，本次文档工作没有进行代码重构。
+以上未完成部分是演进建议。当前重构仅分离 HUD、装备呈现和命中计算，没有重写移动、世界生成或输入模式。

@@ -37,3 +37,10 @@ test("aim transition is gradual and independent of frame rate", () => {
   for (let i = 0; i < 120; i++) b.update(1 / 120, anchor, 0, 0, true, false);
   assert.ok(Math.abs(a.aimBlend - b.aimBlend) < 1e-10);
 });
+test("first-person pose stays at the active viewpoint instead of behind it", () => {
+  const rig = new CameraRig(), anchor = new Vector3(4, 2, -3);
+  const pose = rig.update(1 / 60, anchor, 0.4, -0.1, false, false, true);
+  assert.ok(pose.position.distanceTo(anchor) < 0.1);
+  assert.ok(pose.look.z < 0);
+  assert.equal(pose.fov, 70);
+});
