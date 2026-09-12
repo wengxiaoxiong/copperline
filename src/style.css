@@ -854,21 +854,9 @@ body.pointer-locked #game {
   padding-left: 12px;
 }
 
-/* PS2-era neighborhood presentation: warm, grainy scene, compact outlined HUD. */
-#game {
-  filter: contrast(1.08) saturate(0.88) sepia(0.16);
-}
-.film-grain {
-  background:
-    linear-gradient(180deg, #77712715, transparent 32%, #4d271014),
-    repeating-linear-gradient(
-      0deg,
-      #21170d08 0px,
-      #21170d08 1px,
-      transparent 1px,
-      transparent 3px
-    );
-}
+/* Clear coastal light; keep the scene free of scanlines and sepia. */
+#game { filter: none; }
+.film-grain { background: radial-gradient(ellipse at center, transparent 65%, #142d421a 100%); }
 body:not(.menu-open) header .wordmark {
   display: none;
 }

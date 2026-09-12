@@ -1,6 +1,6 @@
 import * as T from "three";
 export function surfaceTexture(
-  kind: "road" | "grass" | "wall" | "roof",
+  kind: "road" | "grass" | "wall" | "roof" | "asphalt",
   seed = 71,
 ) {
   const c = document.createElement("canvas");
@@ -12,26 +12,26 @@ export function surfaceTexture(
     return n / 4294967296;
   };
   ctx.fillStyle =
-    kind === "road"
+    kind === "asphalt" ? "#b9c2c7" : kind === "road"
       ? "#a2957e"
       : kind === "grass"
         ? "#85904a"
         : kind === "roof"
           ? "#88806b"
-          : "#d5c5a1";
+          : "#f2f1ed";
   ctx.fillRect(0, 0, 128, 128);
   for (let i = 0; i < 13000; i++) {
     const v = Math.floor(rand() * 140);
-    ctx.fillStyle = `rgba(${v + 50},${v + 42},${v + 26},${kind === "wall" ? 0.1 : 0.27})`;
+    ctx.fillStyle = `rgba(${v + 50},${v + 42},${v + 26},${kind === "wall" ? 0.025 : 0.12})`;
     ctx.fillRect(rand() * 128, rand() * 128, 1 + rand() * 2, 1 + rand() * 2);
   }
   if (kind === "wall") {
     for (let y = 0; y < 128; y += 12) {
-      ctx.fillStyle = "rgba(55,40,23,.1)";
+      ctx.fillStyle = "rgba(75,85,90,.025)";
       ctx.fillRect(0, y, 128, 1);
     }
     for (let i = 0; i < 35; i++) {
-      ctx.fillStyle = "rgba(72,48,22,.06)";
+      ctx.fillStyle = "rgba(72,80,90,.015)";
       ctx.fillRect(
         rand() * 128,
         rand() * 128,
@@ -68,7 +68,7 @@ export function surfaceTexture(
   t.colorSpace = T.SRGBColorSpace;
   t.wrapS = t.wrapT = T.RepeatWrapping;
   t.magFilter = T.LinearFilter;
-  t.anisotropy = 2;
+  t.anisotropy = 8;
   t.repeat.set(
     kind === "road" ? 16 : kind === "grass" ? 5 : kind === "roof" ? 2 : 1,
     kind === "road" ? 16 : kind === "grass" ? 5 : kind === "roof" ? 2 : 1,
@@ -114,4 +114,20 @@ export function palmAssets() {
   }
   bark.computeVertexNormals();
   return { leaves, bark };
+}
+
+// One shared court texture provides curved markings without hundreds of meshes.
+export function courtTexture() {
+  const canvas = document.createElement("canvas"); canvas.width=512; canvas.height=1024;
+  const c=canvas.getContext("2d")!;
+  c.fillStyle="#397d79"; c.fillRect(0,0,512,1024);
+  c.fillStyle="#c48a65"; c.fillRect(170,24,172,190); c.fillRect(170,810,172,190);
+  c.strokeStyle="#f6ead0"; c.lineWidth=4;
+  c.strokeRect(16,24,480,976); c.strokeRect(170,24,172,190); c.strokeRect(170,810,172,190);
+  c.beginPath(); c.moveTo(16,512); c.lineTo(496,512); c.stroke();
+  for(const y of [214,512,810]) { c.beginPath(); c.arc(256,y,y===512?62:58,0,Math.PI*2); c.stroke(); }
+  c.beginPath(); c.arc(256,70,210,0,Math.PI); c.stroke();
+  c.beginPath(); c.arc(256,954,210,Math.PI,Math.PI*2); c.stroke();
+  const texture=new T.CanvasTexture(canvas); texture.colorSpace=T.SRGBColorSpace; texture.anisotropy=8;
+  return texture;
 }

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as T from 'three';
 import R from '@dimforge/rapier3d-compat';
-import { WorldPlan, BLOCK, chunkAt } from '../src/generation.ts';
+import { WorldPlan, BLOCK, chunkAt, hashSeed } from '../src/generation.ts';
 import { buildLandscape } from '../src/landscape.ts';
 test('seeded road network connects every district and navigation follows the actual road surface', () => {
   for (const seed of [87,1234567,4294967295]) {
@@ -33,6 +33,28 @@ test('streamed bridge colliders match deck heights and terrain edges join withou
     assert.ok(hit,'bridge has no solid deck'); assert.ok(Math.abs(p.y+10-hit.timeOfImpact-p.y)<0.3,'deck height differs from road plan');
   }
   for(let z=-400;z<500;z+=7)assert.ok(Math.abs(plan.heightAt(72-0.00001,z)-plan.heightAt(72+0.00001,z))<0.01);
+  physics.free();
+});
+test('steep road junction colliders stay below the driving surface', async () => {
+  await R.init();
+  const plan = new WorldPlan(hashSeed('PALM-GROVE-2026')), road = plan.roads[15];
+  const physics = new R.World({ x: 0, y: -18, z: 0 });
+  const chunk = chunkAt(plan.sampleRoad(road, 8).x, plan.sampleRoad(road, 8).z);
+  for (let x = chunk.x - 1; x <= chunk.x + 1; x++) for (let z = chunk.z - 1; z <= chunk.z + 1; z++) {
+    const root = new T.Group();
+    root.position.set(x * BLOCK, 0, z * BLOCK);
+    buildLandscape(root, [], physics, plan, x, z);
+  }
+  physics.step();
+
+  const point = plan.sampleRoad(road, 8);
+  for (const dx of [-2, -1, 0, 1, 2]) for (const dz of [-2, -1, 0, 1, 2]) {
+    const hit = physics.castRay(new R.Ray({ x: point.x + dx, y: 45, z: point.z + dz }, { x: 0, y: -1, z: 0 }), 30, true);
+    assert.ok(hit, 'steep road must have a collider');
+    const hitY = 45 - hit!.timeOfImpact;
+    assert.ok(hitY <= plan.surfaceAt(point.x + dx, point.z + dz) + 0.03,
+      `junction collider protrudes into road: collider=${hitY}, surface=${plan.surfaceAt(point.x + dx, point.z + dz)}`);
+  }
   physics.free();
 });
 test('landmarks reserve space off roads across seeds', () => {

@@ -6,7 +6,7 @@ export type HudState = {
   weapon: WeaponSpec; weaponState: { ammo: number; reloadTime: number };
   speed: number; flying: boolean; driving: boolean; mode: string;
   hitTime: number; collectedCoins: number; hits: number; travel: number;
-  nearShop: boolean; nearHelicopter: boolean; nearVehicle: boolean; nearDriver: boolean;
+  nearShop: boolean; nearHelicopter: boolean; nearVehicle: boolean; nearDriver: boolean; nearEntrance: boolean;
   entry: boolean; chunk: { x: number; z: number }; district: string; fps: number; chunks: number;
 };
 
@@ -51,8 +51,8 @@ export function renderHud(state: HudState, doc: Pick<Document, "getElementById">
     ? "<kbd>W S</kbd> 前后飞行 <kbd>A D</kbd> 转向 <kbd>SPACE</kbd> 上升 <kbd>SHIFT</kbd> 下降 <kbd>F</kbd> 离机 <kbd>C</kbd> 视角"
     : state.driving ? "<kbd>W S</kbd> 油门 / 倒车 <kbd>A D</kbd> 转向 <kbd>SPACE</kbd> 手刹 <kbd>F</kbd> 下车 <kbd>C</kbd> 视角 <kbd>M</kbd> 地图"
     : "<kbd>W A S D</kbd> 移动 <kbd>SHIFT</kbd> 跑步 <kbd>F</kbd> 上车 <kbd>鼠标</kbd> 射击 <kbd>Tab</kbd> 物品栏 <kbd>1–4</kbd> 切枪 <kbd>C</kbd> 视角 <kbd>M</kbd> 地图";
-  $("interaction").style.display = (state.nearShop || state.nearHelicopter || state.nearVehicle) && !state.entry ? "block" : "none";
-  $("interaction").innerHTML = state.nearShop ? "<kbd>E</kbd> 武器商店 · 3 枚金币起" : state.nearHelicopter ? "<kbd>F</kbd> 驾驶直升机" : state.nearDriver ? "<kbd>F</kbd> 抢车 · 等车辆停下" : "<kbd>F</kbd> 上车";
+  $("interaction").style.display = (state.nearShop || state.nearHelicopter || state.nearVehicle || state.nearEntrance) && !state.entry ? "block" : "none";
+  $("interaction").innerHTML = state.nearShop ? "<kbd>E</kbd> 武器商店 · 3 枚金币起" : state.nearHelicopter ? "<kbd>F</kbd> 驾驶直升机" : state.nearDriver ? "<kbd>F</kbd> 抢车 · 等车辆停下" : state.nearVehicle ? "<kbd>F</kbd> 上车" : "入口开放 · 直接走入";
   $("location").textContent = `BLOCK ${state.chunk.x} / ${state.chunk.z}`;
   $("district").textContent = state.district;
   $("perf").textContent =

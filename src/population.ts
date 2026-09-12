@@ -48,14 +48,16 @@ export type Vehicle = {
 export type Pedestrian = {
   kind: "person"; id: string; road: number; distance: number; direction: number; speed: number;
   color: T.Color; position: T.Vector3; yaw: number; health: number; panic: number; hurt: number; down: number;
-  attack: number; chasing: number;
+  attack: number; chasing: number; gunCooldown: number; hostile: number; runOverCount: number;
 };
 export type Loot = { id: string; value: number; baseY: number; position: T.Vector3; mesh: T.Mesh };
 // Non-hostile drift distance before a pedestrian starts chasing the player.
 const AGGRO_RANGE = 34, CHASE_SPEED = 3.9, ATTACK_RANGE = 1.6, ATTACK_COOLDOWN = 1.05, ATTACK_DAMAGE = 8;
 // Instanced pedestrians do not have physics bodies, so keep this spacing in
 // the crowd controller instead of relying on Rapier to separate their meshes.
-const PEDESTRIAN_SPACING = 1.2;
+const PEDESTRIAN_SPACING = 1.2, NPC_RANGE = 30, NPC_COOLDOWN = 1.35, NPC_DAMAGE = 18;
+// Civilians only shoot the player after a conflict: gunfire, carjacking, or being run over.
+const HOSTILE_DURATION = 14, DRIVER_HOSTILE_DURATION = 45, WITNESS_RANGE = 35;
 export class Population {
   people: Pedestrian[] = [];
   cars: Vehicle[] = [];
@@ -68,6 +70,7 @@ export class Population {
   attackCount = 0;
   // Game wires these in; standalone tests can leave them unset.
   hurtPlayer: ((amount: number) => void) | null = null;
+  onShot: ((from: T.Vector3, to: T.Vector3) => void) | null = null;
   onRunOver: ((person: Pedestrian, car: Vehicle) => void) | null = null;
   playerVulnerable = true;
   person = createPerson(0xe0d8bf);
@@ -120,9 +123,19 @@ export class Population {
     if (hit.instanceId !== undefined) return hit.object.userData.actors?.[hit.instanceId] as Pedestrian | Vehicle | undefined;
     let o: T.Object3D | null = hit.object; while (o) { if (o.userData.vehicle) return o.userData.vehicle as Vehicle; o = o.parent; }
   }
+  /** Returns the impact point and whether a fixed collider blocks the shot. */
+  shootPoint(from: T.Vector3, to: T.Vector3) {
+    const delta = to.clone().sub(from);
+    const distance = delta.length();
+    if (distance < 0.001) return { point: to, blocked: false };
+    const dir = delta.clone().normalize();
+    const hit = this.physics.castRay(new R.Ray(from, dir), distance, true, R.QueryFilterFlags.ONLY_FIXED);
+    return hit ? { point: from.clone().addScaledVector(dir, hit.timeOfImpact), blocked: true } : { point: to, blocked: false };
+  }
   scare(origin: T.Vector3) {
     for (const p of this.people) if (p.health > 0 && p.position.distanceTo(origin) < 55) {
       p.panic = 9;
+      if (p.position.distanceTo(origin) < WITNESS_RANGE) p.hostile = Math.max(p.hostile, HOSTILE_DURATION);
       const plan = worldPlan(this.seed), road = plan.roads[p.road];
       const forward = plan.sampleRoad(road, Math.min(road.length, p.distance + 2));
       if ((forward.x - p.position.x - this.offset.x) * (p.position.x - origin.x) + (forward.z - p.position.z - this.offset.z) * (p.position.z - origin.z) < 0) p.direction = -1;
@@ -131,8 +144,9 @@ export class Population {
   }
   damage(person: Pedestrian, amount: number) {
     if (person.health <= 0) return false;
-    person.health = Math.max(0, person.health - amount); person.hurt = 0.3; person.panic = 10;
+    person.health = Math.max(0, person.health - amount); person.hurt = 0.3; person.panic = 10; person.hostile = Math.max(person.hostile, HOSTILE_DURATION);
     this.changedPeople.set(person.id, person);
+    for (const p of this.people) if (p.health > 0 && p !== person && p.position.distanceTo(person.position) < WITNESS_RANGE) p.hostile = Math.max(p.hostile, HOSTILE_DURATION);
     if (person.health === 0) this.dropLoot(person);
     return person.health === 0;
   }
@@ -160,13 +174,27 @@ export class Population {
     });
     return n;
   }
-  // A moving vehicle knocks a pedestrian down and they bleed coins.
+  // A moving vehicle knocks a pedestrian down first; only repeated runs finish them.
   runOver(person: Pedestrian, car: Vehicle) {
     if (person.health <= 0) return;
-    person.health = 0; person.hurt = 0.35; person.down = 0.4;
+    person.hurt = 0.35; person.hostile = Math.max(person.hostile, HOSTILE_DURATION);
+    for (const p of this.people) if (p.health > 0 && p !== person && p.position.distanceTo(person.position) < WITNESS_RANGE) p.hostile = Math.max(p.hostile, HOSTILE_DURATION);
+    if (person.down > 0) {
+      person.runOverCount++;
+      if (person.runOverCount >= 2) {
+        person.health = 0;
+        this.dropLoot(person);
+        this.onRunOver?.(person, car);
+      }
+    } else {
+      person.health = Math.max(0, person.health - 25); person.down = 0.4; person.runOverCount = 1;
+      if (person.health === 0) {
+        person.down = Math.min(1, person.down + 0.3);
+        this.dropLoot(person);
+        this.onRunOver?.(person, car);
+      }
+    }
     this.changedPeople.set(person.id, person);
-    this.dropLoot(person);
-    this.onRunOver?.(person, car);
   }
   crush() {
     const moving: { car: Vehicle; x: number; y: number; z: number }[] = [];
@@ -174,7 +202,7 @@ export class Population {
       if (!car.body.isEnabled()) continue;
       const p = car.body.translation(), v = car.body.linvel();
       const speed = car.body.isDynamic() ? Math.hypot(v.x, v.z) : car.actualSpeed;
-      if (Math.abs(speed) < 1.5) continue;
+      if (Math.abs(speed) < 0.5) continue;
       moving.push({ car, x: p.x, y: p.y, z: p.z });
     }
     if (!moving.length) return;
@@ -203,8 +231,12 @@ export class Population {
     if (car.driver) {
       const n = worldPlan(this.seed).nearestRoad(car.body.translation().x + this.offset.x, car.body.translation().z + this.offset.z);
       const person: Pedestrian = { kind: "person", id: `${car.id}:driver`, road: n.road.id, distance: n.along, direction: -car.direction,
-        speed: 1.3, color: new T.Color(0xa59a75), position: new T.Vector3(), yaw: 0, health: 100, panic: 12, hurt: 0, down: 0, attack: 0, chasing: 0 };
-      this.placePerson(person); this.people.push(person); this.changedPeople.set(person.id, person);
+        speed: 1.3, color: new T.Color(0xa59a75), position: new T.Vector3(), yaw: 0, health: 100, panic: 12, hurt: 0, down: 0, attack: 0, chasing: 1, gunCooldown: 0, hostile: DRIVER_HOSTILE_DURATION, runOverCount: 0 };
+      const t = car.body.translation(), q = car.body.rotation();
+      const yaw = new T.Euler().setFromQuaternion(new T.Quaternion(q.x, q.y, q.z, q.w), "YXZ").y;
+      person.position.set(t.x + Math.cos(yaw) * 1.4, t.y, t.z - Math.sin(yaw) * 1.4);
+      person.yaw = yaw;
+      this.people.push(person); this.changedPeople.set(person.id, person);
     }
     car.driver = false; car.parked = false; car.claimed = true; car.controller = "player";
     car.body.setBodyType(R.RigidBodyType.Dynamic, true); car.body.setEnabledRotations(true, true, true, true);
@@ -276,7 +308,7 @@ export class Population {
         const id = `${road.id}:${along}`, r = randomFor(seed, road.id, along);
         if (!personIds.has(id) && this.people.length < 140) {
           const saved = this.changedPeople.get(id);
-          const person: Pedestrian = saved ?? { kind: "person", id, road: road.id, distance: along, direction: r() > 0.5 ? 1 : -1, speed: 0.9 + r() * 0.6, color: new T.Color().setHSL(r(), 0.35, 0.55), position: new T.Vector3(), yaw: 0, health: 100, panic: 0, hurt: 0, down: 0, attack: 0, chasing: 0 };
+          const person: Pedestrian = saved ?? { kind: "person", id, road: road.id, distance: along, direction: r() > 0.5 ? 1 : -1, speed: 0.9 + r() * 0.6, color: new T.Color().setHSL(r(), 0.35, 0.55), position: new T.Vector3(), yaw: 0, health: 100, panic: 0, hurt: 0, down: 0, attack: 0, chasing: 0, gunCooldown: r() * NPC_COOLDOWN, hostile: 0, runOverCount: 0 };
           if (!saved) this.placePerson(person);
           if (person.position.distanceTo(position) < 175) { this.people.push(person); personIds.add(id); }
         }
@@ -317,23 +349,63 @@ export class Population {
       car.body.setNextKinematicRotation(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), next.yaw + (car.direction < 0 ? Math.PI : 0)));
     }
     this.attackCount = 0;
+    // Hostile civilians can shoot the player or a nearby living target.
+    // Applying damage through Population keeps identity, drops and streaming intact.
+    for (const shooter of dt > 0 ? this.people : []) {
+      if (shooter.health <= 0) continue;
+      shooter.gunCooldown = Math.max(0, shooter.gunCooldown - dt);
+      if (shooter.gunCooldown > 0 || shooter.hostile <= 0) continue;
+      const playerDistance = shooter.position.distanceToSquared(position);
+      if (this.playerVulnerable && shooter.hostile > 0 && playerDistance < AGGRO_RANGE * AGGRO_RANGE) {
+        shooter.gunCooldown = NPC_COOLDOWN;
+        shooter.yaw = Math.atan2(-(position.x - shooter.position.x), -(position.z - shooter.position.z));
+        const from = shooter.position.clone().add(new T.Vector3(0, 1.25, 0));
+        const to = position.clone().add(new T.Vector3(0, 0.75, 0));
+        const { point, blocked } = this.shootPoint(from, to);
+        this.onShot?.(from, point);
+        if (!blocked) this.hurtPlayer?.(NPC_DAMAGE);
+        continue;
+      }
+      let target: Pedestrian | undefined, best = NPC_RANGE * NPC_RANGE;
+      for (const candidate of this.people) {
+        if (candidate === shooter || candidate.health <= 0) continue;
+        const distance = shooter.position.distanceToSquared(candidate.position);
+        if (distance < best) { best = distance; target = candidate; }
+      }
+      if (target) {
+        shooter.gunCooldown = NPC_COOLDOWN;
+        shooter.yaw = Math.atan2(-(target.position.x - shooter.position.x), -(target.position.z - shooter.position.z));
+        const from = shooter.position.clone().add(new T.Vector3(0, 1.25, 0));
+        const to = target.position.clone().add(new T.Vector3(0, 1.05, 0));
+        const { point, blocked } = this.shootPoint(from, to);
+        this.onShot?.(from, point);
+        if (!blocked) {
+          this.damage(target, NPC_DAMAGE);
+          target.panic = 4.5;
+          // Panic makes the victim run along the road at an accelerated pace.
+          target.direction = -target.direction;
+        }
+      }
+    }
     for (const person of this.people) {
-      person.hurt = Math.max(0, person.hurt - dt); person.panic = Math.max(0, person.panic - dt); person.attack = Math.max(0, person.attack - dt);
+      person.hurt = Math.max(0, person.hurt - dt); person.panic = Math.max(0, person.panic - dt); person.attack = Math.max(0, person.attack - dt); person.hostile = Math.max(0, person.hostile - dt);
       if (person.health <= 0) { person.down = Math.min(1, person.down + dt * 3); continue; }
+      if (person.down > 0) {
+        person.down = Math.max(0, person.down - dt * 0.35);
+        if (person.down === 0) person.runOverCount = 0;
+        continue;
+      }
       const dx = position.x - person.position.x, dz = position.z - person.position.z;
       const distance = Math.hypot(dx, dz);
-      // The whole street turns on the player once they are within shouting range.
-      // panic keeps decaying on its own so a fleeing driver stays alarmed.
-      if (distance > 0.001 && distance < AGGRO_RANGE) {
+      // Hostile civilians face the player and fire from range. They only retreat
+      // when crowded instead of sprinting forward for the old melee attack.
+      if (person.hostile > 0 && distance > 0.001 && distance < AGGRO_RANGE) {
         person.chasing = 1; this.attackCount++;
         person.yaw = Math.atan2(-dx, -dz);
-        if (distance > ATTACK_RANGE) {
-          const step = Math.min(CHASE_SPEED * dt, distance - ATTACK_RANGE);
-          const x = person.position.x + (dx / distance) * step, z = person.position.z + (dz / distance) * step;
+        if (distance < 7) {
+          const step = CHASE_SPEED * dt;
+          const x = person.position.x - (dx / distance) * step, z = person.position.z - (dz / distance) * step;
           person.position.set(x, plan.surfaceAt(x + this.offset.x, z + this.offset.z), z);
-        } else if (person.attack <= 0) {
-          person.attack = ATTACK_COOLDOWN;
-          if (this.playerVulnerable) this.hurtPlayer?.(ATTACK_DAMAGE);
         }
       } else {
         if (person.chasing) {
@@ -349,7 +421,7 @@ export class Population {
     this.render(); this.syncModels();
   }
   render() {
-    this.person.update(this.time, 0.7, this.attackCount > 0);
+    this.person.update(this.time, 0.7, true);
     const transforms: T.Matrix4[] = [], colors: T.Color[] = [];
     for (const p of this.people) {
       this.dummy.position.copy(p.position); this.dummy.rotation.set(p.down * Math.PI / 2, p.yaw, p.hurt ? 0.16 : 0); this.dummy.updateMatrix();

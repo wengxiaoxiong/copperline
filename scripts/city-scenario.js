@@ -48,31 +48,32 @@ export async function roadDrivingScenario(g) {
   g.stopped=true;cancelAnimationFrame(g.frame);g.reset();
   const plan=worldPlan(g.city.seed), results=[];
   const hill=plan.roads.find(r=>Math.abs(plan.roadHeight(r,0)-plan.roadHeight(r,1))>8);
+  const steepest=plan.roads.reduce((best,r)=>Math.abs(plan.roadHeight(r,1)-plan.roadHeight(r,0))/r.length > Math.abs(plan.roadHeight(best,1)-plan.roadHeight(best,0))/best.length ? r : best);
   const bridge=plan.roads.find(r=>r.bridge && r.width===18 && r.points.some(p=>plan.isWater(p.x,p.z)));
-  for(const [name,road] of [['hill',hill],['bridge',bridge]]) {
+  for(const [name,road,direction] of [['hill',hill,1],['hill-up',steepest,Math.sign(plan.roadHeight(steepest,1)-plan.roadHeight(steepest,0))||1],['bridge',bridge,1]]) {
     if(!road)throw new Error('Missing '+name);
-    const start=plan.sampleRoad(road,10,0);
+    const startAlong=direction>0?10:road.length-10, start=plan.sampleRoad(road,startAlong,0);
     g.city.update(new T.Vector3(start.x,0,start.z),true);
     g.population.reset();g.car=(await import('/src/models.ts')).createCar();g.vehicle=g.population.addHomeCar(g.car,g.city.seed);g.carBody=g.vehicle.body;
     g.population.beginEntry(g.vehicle);g.population.takeControl(g.vehicle);g.driving=true;g.playerBody.setEnabled(false);
     g.carYaw=start.yaw;g.carBody.setTranslation({x:start.x,y:start.y+0.08,z:start.z},true);g.carBody.setRotation(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),start.yaw),true);g.carBody.setLinvel({x:0,y:0,z:0},true);
-    let maxError=0, minY=Infinity, maxY=-Infinity, progress=10, steps=0;
+    let maxError=0, minY=Infinity, maxY=-Infinity, progress=startAlong, steps=0;
     g.keys.add('KeyW');
     for(;steps<2400;steps++) {
       const pos=g.carBody.translation(), nearest=plan.nearestRoad(pos.x,pos.z);
       if(nearest.road.id===road.id)progress=nearest.along;
-      const next=plan.sampleRoad(road,Math.min(road.length-0.5,progress+8),0);
+      const next=plan.sampleRoad(road,Math.max(0.5,Math.min(road.length-0.5,progress+direction*8)),0);
       g.carYaw=Math.atan2(-(next.x-pos.x),-(next.z-pos.z));
       g.city.update(g.activePosition());g.step(1/60);g.syncModels();
       // Keep generated traffic away from this dedicated road-physics acceptance path.
       for(const c of g.population.cars) if(c!==g.vehicle){c.controller='entering';c.body.setEnabled(false);}
       const y=g.carBody.translation().y, surface=plan.surfaceAt(pos.x,pos.z);maxError=Math.max(maxError,Math.abs(y-surface));minY=Math.min(minY,y);maxY=Math.max(maxY,y);
-      if(progress>road.length-12)break;
+      if(direction>0 ? progress>road.length-12 : progress<12)break;
       if(y < -2 || Math.abs(pos.x)>1500)throw new Error(name+' fell through terrain');
     }
     g.keys.clear();
-    if(progress<road.length-15)throw new Error(name+' failed to traverse: '+JSON.stringify({progress,length:road.length,steps,pos:g.carBody.translation(),speed:g.speed}));
-    results.push({name,road:road.id,metres:progress-10,seconds:steps/60,heightChange:maxY-minY,maxSurfaceError:maxError});
+    if(direction>0 ? progress<road.length-15 : progress>15)throw new Error(name+' failed to traverse: '+JSON.stringify({progress,length:road.length,steps,pos:g.carBody.translation(),speed:g.speed}));
+    results.push({name,road:road.id,metres:direction>0?progress-10:road.length-10-progress,seconds:steps/60,heightChange:maxY-minY,maxSurfaceError:maxError});
   }
   return results;
 }

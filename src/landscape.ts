@@ -1,13 +1,20 @@
 import * as T from "three";
 import R from "@dimforge/rapier3d-compat";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { BLOCK, chunkAt, type WorldPlan } from "./generation";
+import { SIDEWALK } from "./parcels";
 import { box, mat } from "./models";
 const landMat = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true });
-const asphalt = mat(0x55564e), pavement = mat(0xb7aa87), stripe = mat(0xe2cc85), stone = mat(0xa29175);
+const asphalt = mat(0x394751), pavement = mat(0xc8cfce), stripe = mat(0xf2e7b6), stone = mat(0x9aa6aa);
+// Thin road paint and paving layers need a stable depth order at long range.
+// This affects only rendering; the shared road/bridge collision stays in place.
+Object.assign(asphalt, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+Object.assign(stripe, { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
 const orange = mat(0xc47746);
 const water = new T.MeshStandardMaterial({ color: 0x397e83, roughness: 0.3, metalness: 0.3 });
 export function buildLandscape(root: T.Group, bodies: R.RigidBody[], physics: R.World, plan: WorldPlan, cx: number, cz: number) {
   const ox = cx * BLOCK, oz = cz * BLOCK;
+  const ribbons = new Map<T.Material, T.Mesh[]>();
   const collision = (mesh: T.Mesh) => {
     const geom = mesh.geometry;
     const body = physics.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(root.position.x, 0, root.position.z));
@@ -22,23 +29,44 @@ export function buildLandscape(root: T.Group, bodies: R.RigidBody[], physics: R.
   const resolution = 12;
   for (let z = 0; z <= resolution; z++) for (let x = 0; x <= resolution; x++) {
     const wx = ox + x * BLOCK / resolution, wz = oz + z * BLOCK / resolution;
-    vertices.push(wx - ox, plan.heightAt(wx, wz), wz - oz);
+    const terrain = plan.heightAt(wx, wz);
+    // The coarse terrain grid can span a sloped road with a triangle whose
+    // interpolated top is above the road ribbon. Carve the underlying terrain
+    // slightly below the shared road surface so the two colliders cannot trap
+    // a vehicle on steep approaches.
+    let y = terrain;
+    for (const segment of plan.segments) {
+      const dx = segment.b.x - segment.a.x, dz = segment.b.z - segment.a.z;
+      const t = Math.max(0, Math.min(1, ((wx - segment.a.x) * dx + (wz - segment.a.z) * dz) / (segment.length * segment.length)));
+      const distance = Math.hypot(wx - (segment.a.x + dx * t), wz - (segment.a.z + dz * t));
+      if (distance <= segment.road.width / 2 + SIDEWALK) {
+        const along = segment.start + segment.length * t;
+        y = Math.min(y, plan.roadHeight(segment.road, along / segment.road.length) + 0.12 - 0.07);
+      }
+    }
+    vertices.push(wx - ox, y, wz - oz);
     const district = plan.district(wx, wz);
-    const color = new T.Color(plan.isWater(wx, wz) ? 0x697c70 : wz > plan.coastAt(wx) - 29 ? 0xc7b47f : district === "hills" ? 0x7b8755 : district === "industrial" ? 0x99927d : district === "oldtown" ? 0xa49b7b : 0x899566);
-    color.multiplyScalar(0.96 + 0.04 * Math.sin(wx * 0.2 + wz * 0.13)); colors.push(color.r, color.g, color.b);
+    const color = new T.Color(plan.isWater(wx, wz) ? 0x697c70 : wz > plan.coastAt(wx) - 29 ? 0xdbcba6 : district === "hills" ? 0x638764 : district === "industrial" ? 0x99927d : district === "oldtown" ? 0xa6a38b : district === "park" ? 0x719d79 : 0x9ca583);
+    color.multiplyScalar(0.97 + 0.025 * Math.sin(wx * 0.043 + wz * 0.031) + 0.015 * Math.cos(wz * 0.15)); colors.push(color.r, color.g, color.b);
   }
   for (let z = 0; z < resolution; z++) for (let x = 0; x < resolution; x++) { const a = z * (resolution + 1) + x, b = a + resolution + 1; indices.push(a, b, a + 1, b, b + 1, a + 1); }
   const terrain = makeMesh(vertices, indices, landMat); terrain.geometry.setAttribute("color", new T.Float32BufferAttribute(colors, 3)); collision(terrain);
   const sea = new T.Mesh(new T.PlaneGeometry(BLOCK, BLOCK), water); sea.rotation.x = -Math.PI / 2; sea.position.set(BLOCK / 2, -0.65, BLOCK / 2); root.add(sea);
-  const strip = (points: { x: number; y: number; z: number; nx?: number; nz?: number }[], width: number, material: T.Material, lift: number, solid = false) => {
+  const strip = (points: { x: number; y: number; z: number; nx?: number; nz?: number }[], width: number, material: T.Material, lift: number, solid = false, visible = true, yAt?: (x: number, z: number, base: number) => number) => {
     const v: number[] = [], idx: number[] = [];
     for (let i = 0; i < points.length; i++) {
       const p = points[i], a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
       const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
-      for (const side of [-1, 1]) v.push(p.x - ox + (p.nx ?? -dz / len) * width / 2 * side, p.y + lift, p.z - oz + (p.nz ?? dx / len) * width / 2 * side);
+      for (const side of [-1, 1]) {
+        const x = p.x + (p.nx ?? -dz / len) * width / 2 * side;
+        const z = p.z + (p.nz ?? dx / len) * width / 2 * side;
+        v.push(x - ox, (yAt?.(x, z, p.y) ?? p.y) + lift, z - oz);
+      }
       if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k, k + 1, k - 1); }
     }
     const mesh = makeMesh(v, idx, material); mesh.material.side = T.DoubleSide; if (solid) collision(mesh);
+    if (!visible) { root.remove(mesh); mesh.geometry.dispose(); return; }
+    if (!ribbons.has(material)) ribbons.set(material, []); ribbons.get(material)!.push(mesh);
   };
   for (const segment of plan.segments) {
     const mx = (segment.a.x + segment.b.x) / 2, mz = (segment.a.z + segment.b.z) / 2;
@@ -53,9 +81,25 @@ export function buildLandscape(root: T.Group, bodies: R.RigidBody[], physics: R.
     const points = [0, 0.5, 1].map(t => pointAt(t));
     // Each tile owns its west/north road. All road centres align globally.
     // Ownership now follows segment midpoints; the shared plan joins curved roads across tiles.
-    strip(points, road.width + 4, pavement, -0.05, true);
+    // Keep sidewalks visible, but do not make their full-width strips a
+    // vehicle barrier at steep junctions where neighboring road ribbons
+    // overlap. The road surface remains the driving collider.
+    // The broad pavement strip is visual only. Its full-width collider can
+    // overlap a neighboring sloped road and leave a vertical step in a lane.
+    strip(points, road.width + SIDEWALK * 2, pavement, -0.025);
+    // At a junction use the lower road surface at each collider edge. This
+    // keeps adjacent road colliders from becoming an uphill wall while the
+    // owning road still fills gaps in the coarse terrain mesh. Bridge decks
+    // stay at their authored height above water.
+    strip(points, road.width, pavement, -0.025, true, false,
+      road.bridge ? undefined : (x, z, base) => Math.min(base, plan.surfaceAt(x, z) + 0.01));
     strip(points, road.width, asphalt, 0);
-    strip([points[0], points[1]], 0.16, stripe, 0.012);
+    if (segment.start > 14 && segment.start + segment.length < road.length - 14)
+      strip([points[0], points[1]], 0.16, stripe, 0.012);
+    for (const side of [-1, 1]) {
+      strip([0, 0.5, 1].map(t => pointAt(t, side * (road.width / 2 - 0.3))), 0.1, stripe, 0.015);
+      strip([0, 0.5, 1].map(t => pointAt(t, side * (road.width / 2 + 0.15))), 0.25, stone, 0.04);
+    }
     if (road.bridge && plan.isWater(mx, mz)) {
       for (const lane of [-road.width / 2 - 1.8, road.width / 2 + 1.8]) {
         const side = [0, 0.5, 1].map(t => pointAt(t, lane));
@@ -65,10 +109,27 @@ export function buildLandscape(root: T.Group, bodies: R.RigidBody[], physics: R.
       const p = points[1]; box(root, 1.6, Math.max(1, p.y + 3), 1.6, p.x - ox, (p.y - 3) / 2, p.z - oz, stone);
     }
     // Pavement lamps, bins and zebra crossings give each block a street edge.
-    if (Math.floor(segment.start / 22) % 3 === 0 && !road.bridge) {
-      const p = plan.sampleRoad(road, segment.start + segment.length / 2, road.width / 2 + 1);
-      box(root, 0.14, 5.5, 0.14, p.x - ox, p.y + 2.75, p.z - oz, stone);
-      box(root, 1.2, 0.18, 0.55, p.x - ox, p.y + 5.5, p.z - oz, stripe);
+  }
+  for (const road of plan.roads) {
+    const roadBox = (along: number, lane: number, w: number, h: number, d: number, height: number, material: T.Material) => {
+      const p = plan.sampleRoad(road, along, lane), c = chunkAt(p.x, p.z);
+      if (c.x !== cx || c.z !== cz) return;
+      const mesh = box(root, w, h, d, p.x - ox, p.y + height, p.z - oz, material);
+      mesh.rotation.y = p.yaw;
+    };
+    for (const along of [15, road.length - 15]) {
+      const p = plan.sampleRoad(road, along);
+      if (plan.isWater(p.x, p.z)) continue;
+      for (let lane = -road.width / 2 + 0.8; lane < road.width / 2 - 0.4; lane += 1.35)
+        roadBox(along, lane, 0.65, 0.025, 3.2, 0.02, stripe);
+      roadBox(along + (along < road.length / 2 ? 3 : -3), 0, road.width - 1, 0.025, 0.25, 0.025, stripe);
+    }
+    for (let along = 30; along < road.length - 24; along += 36) for (const side of [-1, 1]) {
+      const lane = side * (road.width / 2 + SIDEWALK - 0.7), p = plan.sampleRoad(road, along, lane);
+      if (plan.isWater(p.x, p.z)) continue;
+      roadBox(along, lane, 0.14, 6, 0.14, 3, stone);
+      roadBox(along, lane - side * 0.65, 1.5, 0.14, 0.35, 5.95, stone);
+      roadBox(along, lane - side * 1.15, 0.6, 0.1, 0.5, 5.85, stripe);
     }
   }
   // Small junction discs join road ribbons without cracks at irregular intersections.
@@ -76,6 +137,13 @@ export function buildLandscape(root: T.Group, bodies: R.RigidBody[], physics: R.
     const radius = Math.max(...plan.adjacency.get(node.id)!.map(e => e.width / 2));
     const y = Math.max(1.15, plan.naturalHeight(node.x, node.z)) + 0.135;
     const mesh = new T.Mesh(new T.CircleGeometry(radius + 0.2, 20), asphalt); mesh.rotation.x = -Math.PI / 2; mesh.position.set(node.x - ox, y, node.z - oz); mesh.receiveShadow = true; root.add(mesh);
+  }
+  // Road ribbons already use chunk-local coordinates. Merge their presentation
+  // after registering physics, keeping one draw per material per chunk.
+  for (const [material, meshes] of ribbons) if (meshes.length > 1) {
+    const geometry = mergeGeometries(meshes.map(m => m.geometry))!;
+    for (const mesh of meshes) { root.remove(mesh); mesh.geometry.dispose(); }
+    const mesh = new T.Mesh(geometry, material); mesh.receiveShadow = true; root.add(mesh);
   }
   for (const l of plan.landmarks) if (chunkAt(l.x, l.z).x === cx && chunkAt(l.x, l.z).z === cz) {
     const g = new T.Group(); g.position.set(l.x - ox, plan.heightAt(l.x, l.z), l.z - oz); root.add(g);

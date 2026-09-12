@@ -1,9 +1,16 @@
 import * as T from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
-import { BLOCK, generateBlock, chunkAt, worldPlan } from "./generation";
+import { BLOCK, generateBlock, chunkAt, worldPlan, type Building } from "./generation";
 import { boxGeo, mat } from "./models";
 import { buildLandscape } from "./landscape";
-import { surfaceTexture, palmAssets } from "./retro";
+import { buildStreetProps, streetMaterials } from "./street-props";
+import { PlaceDetails } from "./place-details";
+import { buildBuildingDetails } from "./block-details";
+import { buildStreetscape } from "./streetscape";
+import { buildInterior } from "./interiors";
+import { buildBuildingShell, addFacadeBox } from "./building-shell";
+import { InteriorLighting, type InteriorLight } from "./interior-lighting";
+import { surfaceTexture, courtTexture, palmAssets } from "./retro";
 type Coin = { id: string; mesh: T.Mesh; x: number; z: number };
 type Target = {
   id: string;
@@ -21,8 +28,9 @@ type Chunk = {
   bodies: RAPIER.RigidBody[];
   coins: Coin[];
   targets: Target[];
+  interiorLights: InteriorLight[];
 };
-const PALETTE = [0xbbae86, 0xd1b17c, 0x8d9a83, 0xb18762, 0xc6b895, 0x919a90];
+const PALETTE = [0xede5d7, 0xe6b3a0, 0x91bdb7, 0xc98469, 0xe7d4aa, 0x91aabd];
 const SHOPS = [
   "COPPER RECORDS",
   "LUCKY MARKET",
@@ -53,10 +61,12 @@ export class City {
   roofGeo = new T.ConeGeometry(Math.SQRT1_2, 1, 4).rotateY(Math.PI / 4);
   roofMat = mat(0x746041);
   leafMat = new T.MeshStandardMaterial({
-    color: 0x50501f,
+    color: 0x387b55,
     roughness: 1,
     side: T.DoubleSide,
   });
+  places = new PlaceDetails();
+  interiorLighting: InteriorLighting;
   generated = 0;
   lastCenter = "";
   constructor(
@@ -64,20 +74,30 @@ export class City {
     public physics: RAPIER.World,
     public seed: number,
   ) {
+    this.interiorLighting = new InteriorLighting(scene);
     this.materials = [
       mat(0xb4a18a),
-      mat(0xa68c67),
+      mat(0xc5c9c5),
       mat(0xb8a780),
       ...PALETTE.map((c) => mat(c)),
-      mat(0x414a3c, 1),
-      mat(0xd3bc83),
-      mat(0x697867),
-      mat(0x6a7038),
+      mat(0x345968, 0.25),
+      mat(0xf0eee3),
+      mat(0x56966d),
+      mat(0x477965),
       mat(0x75634b),
       mat(0xe4b35d),
       mat(0x263e37),
       mat(0xb7603f),
+      mat(0x8d9a6a), // planted plots
+      mat(0x566064), // parking and loading yards
+      mat(0xa8aaa0), // paving joints
+      mat(0xffffff), // shared painted basketball surface
     ];
+    this.materials[20].map = courtTexture();
+    this.materials[17].map = surfaceTexture("grass");
+    this.materials[18].map = surfaceTexture("asphalt");
+    this.materials[9].emissive.setHex(0x23404c);
+    this.materials[9].emissiveIntensity = 0.22;
     this.materials[0].map = surfaceTexture("road");
     this.materials[1].map = surfaceTexture("wall");
     this.materials[11].map = surfaceTexture("grass");
@@ -109,6 +129,7 @@ export class City {
       tex.colorSpace = T.SRGBColorSpace;
       return new T.MeshBasicMaterial({ map: tex });
     });
+    this.signs.push(...streetMaterials());
   }
   create(cx: number, cz: number) {
     const key = `${cx},${cz}`;
@@ -129,6 +150,7 @@ export class City {
       bodies: [],
       coins: [],
       targets: [],
+      interiorLights: [],
     };
     this.chunks.set(key, chunk);
     const data = chunk.layout;
@@ -140,7 +162,8 @@ export class City {
       if (placement) { v.x -= placement.x; v.z -= placement.z; v.applyAxisAngle(new T.Vector3(0, 1, 0), placement.yaw); v.x += placement.x; v.z += placement.z; v.y += placement.y; }
       return v;
     };
-    const add = (
+    let facadeBuilding: Building | null = null;
+    const addBox = (
       m: number,
       w: number,
       h: number,
@@ -155,6 +178,10 @@ export class City {
       dummy.updateMatrix();
       if (!batches.has(m)) batches.set(m, []);
       batches.get(m)!.push(dummy.matrix.clone());
+    };
+    const add: typeof addBox = (...args) => {
+      if (facadeBuilding) addFacadeBox(facadeBuilding, addBox, ...args);
+      else addBox(...args);
     };
     const collider = (
       x: number,
@@ -192,6 +219,18 @@ export class City {
       root.add(leaves);
       collider(x, height / 2, z, 0.5, height, 0.5);
     };
+    for (const parcel of data.parcels) {
+      placement = parcel;
+      const firstChild = root.children.length;
+      buildStreetscape(parcel, add, collider, palm);
+      this.places.park(root, parcel, add, collider);
+      for (const child of root.children.slice(firstChild)) {
+        child.position.copy(placed(child.position.x, child.position.y, child.position.z));
+        child.quaternion.premultiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), parcel.yaw));
+      }
+      placement = null;
+    }
+    buildStreetProps(root, worldPlan(this.seed), cx, cz, data.parcels, this.materials[15], this.materials[16], this.signs.slice(6), collider);
     data.buildings.forEach((b, i) => {
       placement = b;
       const firstChild = root.children.length;
@@ -201,9 +240,8 @@ export class City {
       add(b.style === "house" ? 11 : 1, b.w + 3, 0.12, b.d + 3, b.x, 0.08, b.z);
       add(1, 2.1, 0.055, 3, b.x, 0.2, front - 1.5);
       add(1, 3, 0.055, 2.1, west - 1.5, 0.2, b.z);
-      add(3 + b.color, b.w, b.h, b.d, b.x, b.h / 2 + 0.2, b.z);
-      collider(b.x, b.h / 2, b.z, b.w, b.h, b.d);
-      add(12, b.w + 0.5, 0.22, b.d + 0.5, b.x, b.h + 0.2, b.z);
+      buildBuildingShell(b, add, collider);
+      facadeBuilding = b;
       if (b.style === "house") {
       const roof = new T.Mesh(this.roofGeo, this.roofMat);
       roof.scale.set(b.w + 1.6, 2.6, b.d + 1.6);
@@ -220,9 +258,15 @@ export class City {
           add(10, 0.3, 0.7, b.d, b.x + side * b.w / 2, b.h + 0.5, b.z);
         }
         add(13, 3, 1.1, 2, b.x + 2, b.h + 0.8, b.z + 2);
-        if (b.style === "shop") {
+        if (b.style === "shop" && !b.venue) {
           add(15, b.w + 1, 0.22, 3, b.x, 3.1, front - 1.2);
           add(9, b.w - 2, 2.1, 0.15, b.x, 1.5, front - 0.1);
+          for (let offset = -b.w / 2 + 2; offset < b.w / 2 - 1; offset += 2.5) {
+            add(10, 0.1, 2.1, 0.22, b.x + offset, 1.5, front - 0.14);
+            add(10, 1.1, 0.05, 2.9, b.x + offset, 3.24, front - 1.2);
+          }
+          add(10, b.w - 2, 0.12, 0.22, b.x, 0.46, front - 0.14);
+          add(10, b.w - 2, 0.1, 0.22, b.x, 2.2, front - 0.14);
           add(15, 3, 0.22, b.d + 1, west - 1.2, 3.1, b.z);
           add(9, 0.15, 2.1, b.d - 2, west - 0.1, 1.5, b.z);
           for (const dz of [-4, 0, 4]) add(10, 0.2, 2.2, 0.12, west - 0.2, 1.5, b.z + dz);
@@ -242,10 +286,51 @@ export class City {
           add(13, 0.1, 0.65, b.d, west - 1.15, y + 0.4, b.z);
         }
       }
+      // Planted facade edges stay inside the existing solid building footprint.
+      if (b.style !== "warehouse") {
+        for (const side of [-1, 1]) {
+          add(1, 2.4, 0.5, 0.7, b.x + side * (b.w / 2 - 1.5), 0.45, front - 0.6);
+          add(11, 2.2, 0.65, 0.6, b.x + side * (b.w / 2 - 1.5), 0.95, front - 0.6);
+        }
+      }
+      if (b.style === "apartment" && b.color % 2 === 0) {
+        // Contrasting full-height bays distinguish modern apartment blocks.
+        for (const side of [-1, 1]) {
+          add(9, 2.1, b.h - 1.2, 0.12, b.x + side * b.w * 0.3, b.h / 2 + 0.4, front - 0.16);
+          add(10, 0.22, b.h, 0.35, b.x + side * (b.w / 2 - 0.25), b.h / 2 + 0.2, front - 0.2);
+        }
+      }
+      // A small art-deco facade kit makes each block read as an authored place
+      // instead of a repeated box, while remaining entirely decorative.
+      const facade = front - 0.12;
+      const floors = Math.max(1, Math.floor(b.h / 3));
+      add(10, 0.28, b.h + 0.3, 0.28, b.x - b.w / 2 + 0.35, b.h / 2 + 0.2, facade);
+      add(10, 0.28, b.h + 0.3, 0.28, b.x + b.w / 2 - 0.35, b.h / 2 + 0.2, facade);
+      for (let floor = 1; floor < floors; floor++) {
+        const y = 0.65 + floor * 3;
+        add(12, b.w + 0.18, 0.12, 0.22, b.x, y, facade);
+      }
+      if (b.style === "apartment") {
+        // Staggered balcony slabs and deep railings give the taller buildings a skyline silhouette.
+        for (let floor = 1; floor < floors; floor += 2) {
+          const y = 1.05 + floor * 3;
+          add(13, b.w * 0.56, 0.16, 1.35, b.x - b.w * 0.16, y, facade - 0.55);
+          add(10, b.w * 0.56, 0.52, 0.08, b.x - b.w * 0.16, y + 0.34, facade - 1.2);
+          add(10, 0.08, 0.52, 1.35, b.x - b.w * 0.43, y + 0.34, facade - 0.55);
+          add(10, 0.08, 0.52, 1.35, b.x + b.w * 0.11, y + 0.34, facade - 0.55);
+        }
+      }
+      if (b.style !== "house") {
+        // Rooftop water tank and a lit vertical sign act as distant wayfinding details.
+        add(14, 2.2, 1.2, 2.2, b.x - b.w * 0.22, b.h + 1.05, b.z + b.d * 0.18);
+        add(15, 0.18, 4.4, 0.18, b.x + b.w / 2 + 0.2, b.h + 2.2, facade);
+        for (let light = 0; light < 3; light++)
+          add(8, 0.14, 0.22, 0.08, b.x + b.w / 2 + 0.2, b.h + 1.1 + light * 1.15, facade - 0.12);
+      }
       // Windows have timber frames, crossbars and sun-faded shutters.
-      for (let floor = b.style === "shop" ? 1 : 0; floor < (b.style === "warehouse" ? 0 : Math.round(b.h / 3)); floor++) {
+      for (let floor = b.style === "shop" ? 1 : 0; floor < (b.style === "warehouse" ? 0 : floors); floor++) {
         const y = 1.9 + floor * 2.8;
-        for (const offset of [-b.w * 0.3, b.w * 0.3])
+        for (const offset of Array.from({ length: Math.max(2, Math.floor(b.w / 3)) }, (_, n) => (n - (Math.max(2, Math.floor(b.w / 3)) - 1) / 2) * 3))
           for (const z of [front - 0.06, b.z + b.d / 2 + 0.06]) {
             add(10, 1.8, 1.9, 0.13, b.x + offset, y, z);
             add(9, 1.48, 1.58, 0.15, b.x + offset, y, z);
@@ -254,7 +339,7 @@ export class City {
             add(12, 0.32, 1.9, 0.13, b.x + offset - 1.03, y, z);
             add(12, 0.32, 1.9, 0.13, b.x + offset + 1.03, y, z);
           }
-        for (const offset of [-b.d * 0.3, b.d * 0.3])
+        for (const offset of Array.from({ length: Math.max(2, Math.floor(b.d / 3)) }, (_, n) => (n - (Math.max(2, Math.floor(b.d / 3)) - 1) / 2) * 3))
           for (const x of [west - 0.06, b.x + b.w / 2 + 0.06]) {
             add(10, 0.13, 1.9, 1.8, x, y, b.z + offset);
             add(9, 0.15, 1.58, 1.48, x, y, b.z + offset);
@@ -264,32 +349,45 @@ export class City {
       }
       if (b.style === "house") {
       // Front and avenue-facing porch, steps and posts.
-      add(12, 1.4, 2.35, 0.15, b.x, 1.4, front - 0.08);
-      add(10, 1.65, 0.15, 0.15, b.x, 2.65, front - 0.08);
-      add(1, 5, 0.35, 2.6, b.x, 0.35, front - 1.2);
-      add(1, 3, 0.17, 0.6, b.x, 0.18, front - 2.7);
+      add(1, 5, 0.12, 2.6, b.x, 0.06, front - 1.2);
+      collider(b.x, 0.06, front - 1.2, 5, 0.12, 2.6);
       add(12, 5.4, 0.18, 3, b.x, 3.05, front - 1.2);
       for (const dx of [-2.2, 2.2])
         add(10, 0.16, 2.6, 0.16, b.x + dx, 1.7, front - 2.2);
-      add(12, 0.15, 2.35, 1.4, west - 0.08, 1.4, b.z);
       add(1, 2.6, 0.35, 5, west - 1.2, 0.35, b.z);
       add(12, 3, 0.18, 5.4, west - 1.2, 3.05, b.z);
       for (const dz of [-2.2, 2.2])
         add(10, 0.16, 2.6, 0.16, west - 2.2, 1.7, b.z + dz);
-      // Low garden walls, leaving entrances open.
-      for (const sign of [-1, 1]) {
-        add(3 + b.color, 8, 0.7, 0.25, b.x + sign * 7, 0.5, b.z - 12);
-        add(3 + b.color, 0.25, 0.7, 8, b.x - 12, 0.5, b.z + sign * 7);
+      // Low garden walls, leaving entrances open, now follow the parcel boundary.
       }
-      }
-      if (b.shop) {
+      if (b.shop && !b.venue) {
         const sign = new T.Mesh(
           new T.PlaneGeometry(5.4, 0.8),
           this.signs[(data.sign + i) % 6],
         );
-        sign.rotation.y = -Math.PI / 2;
-        sign.position.set(west - 1.5, 3.25, b.z);
+        sign.rotation.y = Math.PI;
+        sign.position.set(b.x, 3.8, front - 0.3);
         root.add(sign);
+      }
+      // An open frame makes the actual entrance legible on every facade.
+      facadeBuilding = null;
+      if (b.entrance) {
+        const e = b.entrance, x = b.x + e.x;
+        for (const side of [-1, 1]) add(10, 0.12, e.h, 0.45, x + side * (e.w / 2 + 0.06), 0.12 + e.h / 2, front - 0.225);
+        add(10, e.w + 0.24, 0.12, 0.45, x, 0.18 + e.h, front - 0.225);
+      }
+      buildBuildingDetails(b, add, collider);
+      this.places.building(root, b, add, collider);
+      // Interior details and lights.
+      const lights = buildInterior(b,
+        (m, w, h, d, x, y, z) => add(m, w, h, d, b.x + x, y, b.z + z),
+        (x, y, z, w, h, d) => collider(b.x + x, y, b.z + z, w, h, d),
+      );
+      for (const light of lights) {
+        const marker = new T.Object3D();
+        marker.position.set(b.x + light.x, light.y, b.z + light.z);
+        root.add(marker);
+        chunk.interiorLights.push({ marker, color: light.color });
       }
       for (const child of root.children.slice(firstChild)) {
         child.position.copy(placed(child.position.x, child.position.y, child.position.z));
@@ -380,6 +478,12 @@ export class City {
     }
     this.generated++;
   }
+  updateLighting(camera: T.Vector3) {
+    this.interiorLighting.update(camera, this.lightSources());
+  }
+  private *lightSources() {
+    for (const chunk of this.chunks.values()) yield* chunk.interiorLights;
+  }
   update(pos: T.Vector3, force = false) {
     const c = chunkAt(pos.x + this.offset.x, pos.z + this.offset.z);
     const needed: { x: number; z: number; dist: number }[] = [];
@@ -409,7 +513,7 @@ export class City {
       if (
         o instanceof T.Mesh &&
         o.material instanceof T.MeshBasicMaterial &&
-        !this.signs.includes(o.material)
+        !this.signs.includes(o.material) && !this.places.materials.includes(o.material)
       )
         o.material.dispose();
     });
@@ -485,5 +589,6 @@ export class City {
     this.collected.clear();
     this.defeated.clear();
     this.generated = 0;
+    this.interiorLighting.update(new T.Vector3(), []);
   }
 }

@@ -1,4 +1,5 @@
 import { SHOP } from "./inventory";
+import { SIDEWALK } from "./parcels";
 import { BLOCK, DISTRICT_NAMES, generateBlock, type Point, type WorldPlan } from "./generation";
 export type MapState = { plan: WorldPlan; player: Point; yaw: number; vehicles: (Point & { active: boolean })[] };
 const COLORS = { residential: "#9ba57b", commercial: "#bcaa87", apartments: "#aaa48d", industrial: "#9eaaa4", park: "#7c9c76", oldtown: "#b6a07c", hills: "#718567", coast: "#c6b588" };
@@ -63,13 +64,22 @@ export class Atlas {
     const top = xy({ x: -900, z: -800 }); ctx.drawImage(this.background, top.x, top.y, 1800 * scale, 1600 * scale);
     ctx.lineCap = "round"; ctx.lineJoin = "round";
     const line = (points: Point[], color: string, lineWidth: number) => { if (!points.length) return; ctx.strokeStyle = color; ctx.lineWidth = lineWidth; ctx.beginPath(); points.forEach((p, i) => { const q = xy(p); if (i) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y); }); ctx.stroke(); };
-    for (const road of plan.roads) line(road.points, road.bridge ? "#f6db9e" : "#d9ccb0", Math.max(2, (road.width + 4) * scale));
+    for (const road of plan.roads) line(road.points, road.bridge ? "#f6db9e" : "#d9ccb0", Math.max(2, (road.width + SIDEWALK * 2) * scale));
     for (const road of plan.roads) line(road.points, "#6b6a59", Math.max(1, road.width * scale));
     if (scale > 0.7) {
       const x0 = Math.floor((center.x - width / scale / 2) / BLOCK), x1 = Math.floor((center.x + width / scale / 2) / BLOCK);
       const z0 = Math.floor((center.z - height / scale / 2) / BLOCK), z1 = Math.floor((center.z + height / scale / 2) / BLOCK);
-      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (const b of this.block(plan.seed, x, z).buildings) {
-        const q = xy({ x: x * BLOCK + b.x, z: z * BLOCK + b.z }); ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(-b.yaw); ctx.fillStyle = "#686b59"; ctx.fillRect(-b.w / 2 * scale, -b.d / 2 * scale, b.w * scale, b.d * scale); ctx.restore();
+      for (let x = x0 - 1; x <= x1 + 1; x++) for (let z = z0 - 1; z <= z1 + 1; z++) {
+        const block = this.block(plan.seed, x, z);
+        for (const p of block.parcels) {
+          const q = xy({ x: x * BLOCK + p.x, z: z * BLOCK + p.z });
+          ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(-p.yaw);
+          ctx.fillStyle = p.use === "court" ? "#397d79" : p.use === "market" ? "#bb9971" : p.use === "garden" || p.use === "housing" ? "#8e9b75" : p.use === "parking" || p.use === "yard" || p.use === "depot" ? "#81877f" : "#bec1ac";
+          ctx.fillRect(-p.w / 2 * scale, -p.d / 2 * scale, p.w * scale, p.d * scale); ctx.restore();
+        }
+        for (const b of block.buildings) {
+          const q = xy({ x: x * BLOCK + b.x, z: z * BLOCK + b.z }); ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(-b.yaw); ctx.fillStyle = "#686b59"; ctx.fillRect(-b.w / 2 * scale, -b.d / 2 * scale, b.w * scale, b.d * scale); ctx.restore();
+        }
       }
     }
     line(this.route, "#2c554d", large ? 7 : 5); line(this.route, "#f4c468", large ? 4 : 3);

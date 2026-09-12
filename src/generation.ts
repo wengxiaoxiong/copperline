@@ -1,5 +1,10 @@
+import type { Venue } from "./venues";
+import { planParcels, insidePlot, SIDEWALK, type Parcel } from "./parcels";
 export const BLOCK = 72;
 export const ROAD = 18;
+// The streamed city keeps the same block density while stretching the
+// authored road network into a larger navigable region.
+export const CITY_SCALE = 1.35;
 export function hashSeed(text: string): number {
   let h = 2166136261;
   for (const c of text) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
@@ -18,7 +23,8 @@ export function randomFor(seed: number, x: number, z: number) {
 export type Point = { x: number; z: number };
 export type RoadNode = Point & { id: number };
 export type RoadEdge = { id: number; a: number; b: number; points: Point[]; width: number; length: number; bridge: boolean };
-export type Building = Point & { w: number; d: number; h: number; y: number; yaw: number; color: number; shop: boolean; style: "house" | "shop" | "apartment" | "warehouse" };
+export type Entrance = { x: number; z: number; w: number; h: number };
+export type Building = Point & { w: number; d: number; h: number; y: number; yaw: number; color: number; shop: boolean; style: "house" | "shop" | "apartment" | "warehouse"; entrance?: Entrance; venue?: Venue };
 export const DISTRICT_NAMES = {
   residential: "PALM GROVE · 棕榈住宅区", commercial: "MARKET STREET · 商业街",
   apartments: "SUNSET HEIGHTS · 日落中心", industrial: "HARBOR WORKS · 港湾仓储",
@@ -34,12 +40,14 @@ export class WorldPlan {
   landmarks: (Point & { name: string; kind: "tower" | "lighthouse" | "crane" | "plaza" })[] = [];
   segments: { a: Point; b: Point; road: RoadEdge; start: number; length: number }[] = [];
   adjacency = new Map<number, RoadEdge[]>();
+  parcels: Parcel[] = [];
+  parcelChunks = new Map<string, Parcel[]>();
   phase: number;
   constructor(public seed: number) {
     this.phase = (seed % 997) / 997 * 6.28;
     const r = randomFor(seed ^ 989, 0, 0);
-    const xs = [-720, -530, -350, -165, 0, 155, 320, 510, 725];
-    const zs = [-620, -440, -275, -125, 0, 180, 345];
+    const xs = [-720, -530, -350, -165, 0, 155, 320, 510, 725].map((v) => v * CITY_SCALE);
+    const zs = [-620, -440, -275, -125, 0, 180, 345].map((v) => v * CITY_SCALE);
     for (let j = 0; j < zs.length; j++) for (let i = 0; i < xs.length; i++) {
       let x = xs[i] + (r() - 0.5) * 42, z = zs[j] + (r() - 0.5) * 44;
       if (i === 4) x = Math.sin(j * 0.9) * 25;
@@ -82,10 +90,10 @@ export class WorldPlan {
       previous = id;
     }
     this.landmarks = [
-      { x: -540, z: -500, kind: "tower", name: "山顶水塔" },
-      { x: -50, z: -90, kind: "plaza", name: "日落广场" },
-      { x: 470, z: 280, kind: "crane", name: "铜线港" },
-      { x: -350, z: this.coastAt(-350) - 10, kind: "lighthouse", name: "海角灯塔" },
+      { x: -540 * CITY_SCALE, z: -500 * CITY_SCALE, kind: "tower", name: "山顶水塔" },
+      { x: -50 * CITY_SCALE, z: -90 * CITY_SCALE, kind: "plaza", name: "日落广场" },
+      { x: 470 * CITY_SCALE, z: 280 * CITY_SCALE, kind: "crane", name: "铜线港" },
+      { x: -350 * CITY_SCALE, z: this.coastAt(-350 * CITY_SCALE) - 10, kind: "lighthouse", name: "海角灯塔" },
     ];
     for (const landmark of this.landmarks) {
       const origin = { x: landmark.x, z: landmark.z };
@@ -99,9 +107,21 @@ export class WorldPlan {
         landmark.x = x; landmark.z = z; placed = true; break;
       }
     }
+    this.parcels = planParcels(this, randomFor);
+    for (const parcel of this.parcels) {
+      const c = chunkAt(parcel.x, parcel.z), key = `${c.x},${c.z}`;
+      if (!this.parcelChunks.has(key)) this.parcelChunks.set(key, []);
+      this.parcelChunks.get(key)!.push(parcel);
+    }
   }
-  coastAt(x: number) { return 525 + Math.sin(x / 230 + this.phase) * 36 + Math.sin(x / 490) * 25; }
-  riverAt(z: number) { return 235 + Math.sin(z / 180 + this.phase) * 36; }
+  parcelsNear(x: number, z: number) {
+    const c = chunkAt(x, z), result: Parcel[] = [];
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
+      result.push(...(this.parcelChunks.get(`${c.x + dx},${c.z + dz}`) ?? []));
+    return result;
+  }
+  coastAt(x: number) { return (525 + Math.sin(x / (230 * CITY_SCALE) + this.phase) * 36 + Math.sin(x / (490 * CITY_SCALE)) * 25) * CITY_SCALE; }
+  riverAt(z: number) { return (235 + Math.sin(z / (180 * CITY_SCALE) + this.phase) * 36) * CITY_SCALE; }
   isWater(x: number, z: number) { return z > this.coastAt(x) || Math.abs(x - this.riverAt(z)) < 19; }
   naturalHeight(x: number, z: number) {
     const ocean = this.coastAt(x) - z;
@@ -130,21 +150,21 @@ export class WorldPlan {
     const base = this.naturalHeight(x, z);
     // Water remains below bridge decks; the bridge owns its separate collider.
     if (this.isWater(x, z)) return base;
-    const blend = 1 - smooth(n.road.width / 2 + 2, n.road.width / 2 + 12, n.distance);
+    const blend = 1 - smooth(n.road.width / 2 + SIDEWALK, n.road.width / 2 + SIDEWALK + 10, n.distance);
     return base * (1 - blend) + this.roadHeight(n.road, n.along / n.road.length) * blend;
   }
   surfaceAt(x: number, z: number) {
     const n = this.nearestRoad(x, z);
-    return n.distance <= n.road.width / 2 + 2 ? this.roadHeight(n.road, n.along / n.road.length) + 0.12 : this.heightAt(x, z);
+    return n.distance <= n.road.width / 2 + SIDEWALK ? this.roadHeight(n.road, n.along / n.road.length) + 0.12 : this.heightAt(x, z);
   }
   district(x: number, z: number): District {
     if (z > this.coastAt(x) - 85) return "coast";
-    if (x < -230 && z < -240) return "hills";
-    if (Math.abs(x - this.riverAt(z)) < 65) return "park";
-    if (x > 330 && z > 70) return "industrial";
-    if (x < -290 && z > 30) return "oldtown";
-    if (Math.hypot(x + 25, z + 135) < 130) return "apartments";
-    if (Math.abs(z) < 80 && Math.abs(x) > 100) return "commercial";
+    if (x < -230 * CITY_SCALE && z < -240 * CITY_SCALE) return "hills";
+    if (Math.abs(x - this.riverAt(z)) < 65 * CITY_SCALE) return "park";
+    if (x > 330 * CITY_SCALE && z > 70 * CITY_SCALE) return "industrial";
+    if (x < -290 * CITY_SCALE && z > 30 * CITY_SCALE) return "oldtown";
+    if (Math.hypot(x + 25 * CITY_SCALE, z + 135 * CITY_SCALE) < 130 * CITY_SCALE) return "apartments";
+    if (Math.abs(z) < 80 * CITY_SCALE && Math.abs(x) > 100 * CITY_SCALE) return "commercial";
     return "residential";
   }
   sampleRoad(road: RoadEdge, along: number, lane = 0) {
@@ -193,29 +213,31 @@ export function generateBlock(seed: number, cx: number, cz: number) {
   const trees: (Point & { y: number; height: number })[] = [];
   const district = districtAt(seed, cx, cz);
   const coins: (Point & { id: string; y: number })[] = [];
-  for (let i = 0; i < 22; i++) {
-    const x = 9 + r() * 54, z = 9 + r() * 54, wx = cx * BLOCK + x, wz = cz * BLOCK + z;
-    const n = plan.nearestRoad(wx, wz), kind = plan.district(wx, wz);
-    if (plan.isWater(wx, wz) || plan.landmarks.some(l => distance(l, { x: wx, z: wz }) < (l.kind === "crane" ? 46 : 18))) continue;
-    if ((kind === "hills" || kind === "park" || n.distance > 60) && n.distance > n.road.width / 2 + 4) {
-      trees.push({ x, z, y: plan.heightAt(wx, wz), height: 5 + r() * 8 }); continue;
-    }
-    if (kind === "coast" || n.distance > 62 || n.distance < n.road.width / 2 + 13) continue;
-    const style = kind === "industrial" ? "warehouse" : kind === "apartments" ? "apartment" : kind === "commercial" || kind === "oldtown" ? "shop" : "house";
-    const w = style === "warehouse" ? 24 : 10 + r() * 7, d = style === "warehouse" ? 18 : 10 + r() * 7;
-    const radius = Math.hypot(w, d) / 2 + 2;
-    if (n.distance < n.road.width / 2 + radius + 3 || buildings.some(b => Math.hypot(x - b.x, z - b.z) < radius + Math.hypot(b.w, b.d) / 2 + 3)) continue;
-    if (x - radius < 0 || x + radius > BLOCK || z - radius < 0 || z + radius > BLOCK) continue;
+  const parcels = (plan.parcelChunks.get(`${cx},${cz}`) ?? []).map(p => ({
+    ...p, x: p.x - cx * BLOCK, z: p.z - cz * BLOCK,
+    building: p.building ? { ...p.building, x: p.building.x - cx * BLOCK, z: p.building.z - cz * BLOCK } : undefined,
+  }));
+  for (const p of parcels) if (p.building) buildings.push(p.building);
+  const nearbyParcels = plan.parcelsNear((cx + 0.5) * BLOCK, (cz + 0.5) * BLOCK);
+  // A separate random stream keeps existing buildings and pickups stable.
+  const planting = randomFor(seed ^ 0x51a7, cx, cz);
+  for (let i = 0; i < 18; i++) {
+    const x = 5 + planting() * (BLOCK - 10), z = 5 + planting() * (BLOCK - 10);
+    const wx = cx * BLOCK + x, wz = cz * BLOCK + z;
+    const near = plan.nearestRoad(wx, wz);
+    if (plan.isWater(wx, wz) || near.distance < near.road.width / 2 + 5) continue;
     if (plan.landmarks.some(l => distance(l, { x: wx, z: wz }) < (l.kind === "crane" ? 58 : 26))) continue;
-    buildings.push({ x, z, w, d, y: plan.heightAt(wx, wz), yaw: n.yaw + Math.PI / 2,
-      h: style === "apartment" ? 15 + Math.floor(r() * 7) * 3 : style === "warehouse" ? 8 : style === "shop" ? 5 + r() * 4 : 4 + r() * 3,
-      style, color: Math.floor(r() * 6), shop: style === "shop" });
+    if (nearbyParcels.some(p => insidePlot(p, { x: wx, z: wz }, 3))) continue;
+    // Urban greenery belongs to yards and street edges; parks stay freely planted.
+    if (district !== "hills" && district !== "park" && near.distance > near.road.width / 2 + 9 && i >= 5) continue;
+    if (trees.some(t => Math.hypot(x - t.x, z - t.z) < 7)) continue;
+    trees.push({ x, z, y: plan.heightAt(wx, wz), height: 6 + planting() * 5 });
   }
   for (const s of plan.segments) {
     const p = plan.sampleRoad(s.road, s.start + s.length / 2, 2.8);
     if (chunkAt(p.x, p.z).x === cx && chunkAt(p.x, p.z).z === cz) coins.push({ id: `${s.road.id}:${s.start.toFixed(3)}`, x: p.x - cx * BLOCK, z: p.z - cz * BLOCK, y: p.y + 1 });
   }
-  return { cx, cz, district, buildings, trees, park: district === "park", sign: Math.floor(r() * 6), coins };
+  return { cx, cz, district, parcels, buildings, trees, park: district === "park", sign: Math.floor(r() * 6), coins };
 }
 export function chunkAt(x: number, z: number) { return { x: Math.floor(x / BLOCK), z: Math.floor(z / BLOCK) }; }
 export function collectedKey(seed: string) { return `copperline:${seed}`; }

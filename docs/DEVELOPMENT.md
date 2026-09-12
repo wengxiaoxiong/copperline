@@ -25,6 +25,7 @@ npm run preview
 | [targeting.test.ts](../tests/targeting.test.ts) | 枪口遮挡、射程限制、可复现散布及相机位置保护 |
 | [presentation.test.ts](../tests/presentation.test.ts) | HUD 模式呈现、商店价格可用状态与渲染无购买副作用 |
 | [game.test.ts](../tests/game.test.ts) | 确定性布局、道路空间、金币可达性、扫掠拾取、武器时序、Rapier CCD |
+| [parcels.test.ts](../tests/parcels.test.ts) | 多种子地块避让、朝向、跨区块唯一归属、重建和院门/车道碰撞 |
 | [world-plan.test.ts](../tests/world-plan.test.ts) | 道路连通、导航、桥面碰撞、地形接缝、地标避让 |
 | [population.test.ts](../tests/population.test.ts) | 区域差异、车流、接管、NPC 命中身份、伤害、掉落、流式边界 |
 | [inventory.test.ts](../tests/inventory.test.ts) | 购买扣款、独立弹药与换弹、武器节奏、商店坐标 |
@@ -42,7 +43,7 @@ npm run preview
 [city-scenario.js](../scripts/city-scenario.js) 提供浏览器场景函数，需在开发页面上下文中加载脚本后使用，并非 `npm test` 的一部分：
 
 - `cityScenario(window.__game)`：车辆交互、司机、射击与地图导航。
-- `roadDrivingScenario(window.__game)`：坡道与桥面通行。
+- `roadDrivingScenario(window.__game)`：顺坡、最陡道路反向上坡与桥面通行，检查车辆不会被路口碰撞台阶卡住。
 - `cityRouteScenario(window.__game)`：分批推进跨区域路线；后续调用第二参数传 `true` 继续，直到返回 `done: true`。
 
 这些函数会改变玩家位置和场景状态，部分检查会清理车流，应在可重置的开发会话运行。旧 [browser-scenario.js](../scripts/browser-scenario.js) 面向原方格路网，不应作为新城市的验收标准。
@@ -55,10 +56,84 @@ npm run preview
 | --- | --- | --- |
 | 地理、道路、建筑布局 | generation | landscape 碰撞、atlas 导航、population 路径 |
 | 区块模型和资源 | world / landscape | 卸载、共享资源、负坐标与原点平移 |
-| NPC / 车流 | population | 身份映射、接管、回访、刚体数量 |
+| NPC / 车流 | population | 身份映射、接管、回访、NPC 互射与逃跑、刚体数量 |
 | 武器参数与购买 | inventory / combat | targeting 命中计算、Game 伤害结果、armory 呈现、equipment-panel |
 | 镜头 | camera-rig / Game.updateCamera | 避障、第一人称、连续射击、车辆视角 |
 | HUD 与装备列表 | hud / equipment-panel | 数据契约、模式显示、余额与弹药显示 |
 | 输入、菜单、地图或装备模式 | Game.bind 与模式方法 / atlas | 清空输入、Pointer Lock 失败与返回恢复 |
 
 提交前运行与改动相关的测试及构建；涉及真实交互再做浏览器检查。记录检查覆盖的边界，避免把构建成功写成游玩验收。新增系统也应同步更新架构文档中的所有权、坐标转换和重置规则。
+
+## 海滨画面调整（2026-09-11）
+
+清除场景 sepia 与扫描线，使用蓝色远雾、冷暖分离光照及最高 1.5 倍像素比；降低墙面噪点，补密窗列、立面色块、花槽和道路边线。额外绿化使用独立种子流，保留原有建筑和金币布局；树木仍由 City 管理碰撞、区块卸载及原点平移。新增材质参数和装饰复用现有实例批次，不新增依赖。
+
+浏览器检查需额外关注高像素比设备及树木增加后的性能；自动化浏览器的 Pointer Lock 和截图受运行环境影响，不能作为完整键鼠或帧率验收。
+
+## 沿街地块与街景（2026-09-11）
+
+在前一轮海滨画面调整的基础上，建筑布局改为世界级沿街地块，旧建筑位置会随新规则改变。道路拓扑、金币位置和交互机制保持现有规则。住宅带院落、开放院门和侧车道；商铺增加街前铺装、长椅、门窗分格和条纹雨棚；商业区穿插停车位；仓库前有装卸场地。建筑正面与招牌统一朝向对应街道，窗层数量按建筑实际高度取整。地图显示同一份地块用途与建筑位置。
+
+沿街建筑（住宅、商铺、公寓）现在可以进入：外墙改为空心 shell 并在正面预留门洞，`interiors.ts` 为室内提供地板、隔断、家具与灯光。走近门口时 HUD 提示“入口开放 · 直接走入”；仓库没有开放入口。进入行为没有独立模式，仅依赖开放的门洞与物理碰撞。
+
+`npm test`：32 项通过。`npm run build`：通过，仍有原有的大体积 bundle 提示。浏览器使用默认种子 `PALM-GROVE-2026` 检查了俯瞰、商业街、住宅区、港湾仓库画面。截图来自真实 WebGL canvas；Ego 的整页截图接口超时，改用当前渲染帧导出。
+
+`roadDrivingScenario` 脚本实际运行：坡道约 257 米、桥梁约 219 米均通过，车体与道路参考高度最大误差约 0.087 米。这些是开发场景脚本和静态视角检查，不代表完整键鼠游玩或持续帧率验收。
+
+浏览器另外验证了 City 的真实生命周期：平移 1512 米后刚体位置误差小于 0.0001 米；远离卸载后返回、reset 后重建的地块布局一致，区块恢复为 49 个。相同俯瞰机位的绘制调用从改动前 843 增至 982，三角形从约 31.2 万增至 41.1 万；道路材质合批已压低新增开销，但不据此宣称帧率达标。
+
+本轮完成沿街地块和街景改善，尚未完成道路围合的街区多边形、内部小巷或全城精细地表规划。
+
+
+## 室内灯光性能修复（2026-09-12）
+
+默认种子加载 49 个区块时，原实现有 156 个室内实时光源，全场景共 159 个点光源；现使用固定 4 盏室内灯，全场景共 7 盏。家具和建筑几何保留，并修正楼内坐标到区块坐标的转换。`tests/interior-lighting.test.ts` 验证光源预算、最近灯位、原点平移、远离熄灭与清空。
+
+在开发页面可运行 `await (await import('/scripts/render-profile.js')).renderProfile(window.__game)` 测量当前相机的三次 GPU 渲染耗时。使用 WebGL GPU timer query，拒绝 disjoint/超时结果；返回的 50ms 检查仅用于检测严重渲染退化，不等于稳定 60 FPS。浏览器动画回调存在约 1 秒的调度间隔，本轮不使用该环境的 HUD FPS 宣称真实键鼠游玩流畅。
+
+修复后真实 WebGL 场景验证：49 个区块、156 个灯位均位于建筑轮廓内；室内机位点亮 2 盏灯，三次 GPU 耗时约 3.28/3.89/3.67ms。`npm test` 36 项通过，`npm run build` 通过；构建仍提示 bundle 较大。NPC 无冲突互射、直接扣血缺少遮挡检查、持续重叠重复计数碾压是另行发现的玩法问题，此次性能修复没有解决这些问题。
+
+
+## 建筑进出修复（2026-09-12）
+
+外墙不再假定入口居中；门框、立面装饰避让和 HUD 使用同一入口位置与朝向。取消无对应行为的 F 进门提示，直接走入和走出。保留室内细节和固定 4 盏室内灯预算，住宅门廊补齐碰撞，商店柜台与公寓楼梯让开入口。
+
+`tests/building-entry.test.ts` 使用真实 City、Three.js 射线、Rapier 地形和与 Game 相同的角色控制器，检查默认种子三种建筑各三个入口位置：可视门洞净空、物理门洞、双向步行、住宅卧室通行，以及旋转建筑、负区块和原点平移后的入口提示。仅 Canvas 绘图用替身。
+
+`await (await import('/scripts/building-entry-scenario.js')).buildingEntryScenario(window.__game, 'house')` 可在开发页面检查真实 Game.step 和镜头流程，类型还支持 `shop`、`apartment`。脚本会停止动画循环、改变当前会话位置并推进模拟，完成后停在室内；刷新可恢复正常游戏。
+
+浏览器脚本验证三种建筑都能从门外 2 米走到门内约 2.75 米并原路退出，检查了住宅室内及商店、公寓门洞的真实 WebGL 画面。公寓机位 GPU 渲染约 1.82–2.31ms，全场景 7 个点光源。自动化浏览器拒绝 Pointer Lock，本次没有完成真实键鼠连续游玩验收。建筑相关测试与构建通过；本轮期间工作区新增 NPC 墙体遮挡测试，最终全量结果为 39 项中 38 项通过、1 项失败（hostile pedestrians respect line of sight and do not shoot through walls），未在建筑进出修复中修改该测试或 NPC 逻辑。保留 bundle 体积提示；未提交或部署。
+
+## 路边广告、自行车与信号灯（2026-09-12）
+
+增加四款中英文字广告、双面广告支架、双车停车架，以及非桥梁路口路肩的静态信号灯。建筑进出回归发现偏置入口与设施重叠，已按门洞位置增加整组设施避让。全量测试 39/39 通过，生产构建通过，保留原有 bundle 体积提示。
+
+使用 ego-browser 在开发页面设置固定相机，检查真实 WebGL 商铺街景中的中文广告和停放自行车；此验证属于静态画面检查，不代表完整键鼠游玩或持续帧率验收。信号灯固定红灯，仅作街景，车流未接入交通规则；自行车仅可碰撞、不可骑乘。未提交、推送或部署。
+
+## 街区内部填充与城市细节（2026-09-12）
+
+默认种子 `PALM-GROVE-2026` 在既有 735 个沿街地块之外新增 953 个内部地块：117 个公寓院落、55 个篮球场、695 个大小花园、53 个堆场、33 个露天市场。总规划地块面积从约 66.2 万平方米增加至 122.0 万平方米（约 +84%），并非全世界土地覆盖率。道路、山地、水面与保留区没有填成建筑；当前仍有步行空隙和不能安全平整的坡地。
+
+新增细节包括球场划线、篮架和围网、遮阳摊位与货箱、廊架和长椅、集装箱波纹与托盘、屋顶空调百叶、排水管、后场垃圾箱和阳台花槽。公共设施是静态场景，未接入运动、市场交易或物流玩法。新增建筑沿用可进入的公寓大厅。
+
+验证：`npm test` 42/42 通过；`npm run build` 通过，仍有原有 bundle 大小提示；`git diff --check` 通过。`tests/block-details.test.ts` 验证填充规模、公共地块物件和步道边界，以及真实 City/Rapier 的原点平移、卸载、重建、reset。已有地块测试覆盖三个种子的道路、水面与相邻地块避让，建筑进出测试继续通过。
+
+使用 ego-browser 验证真实 WebGL 的起点俯瞰、篮球场、市场与堆场画面。最后四个机位的 GPU timer query 采样范围约 1.59–8.46ms，全场景保持 7 个点光源；这是静态渲染采样，不含完整模拟、输入延迟和持续帧率验收。开发脚本 `buildingEntryScenario` 的 house/shop/apartment 均可进入约 2.75 米并原路退出。截图保存在被 git 忽略的 `artifacts/city-overview.png`、`city-court.png`、`city-market.png`、`city-depot.png`。未提交、推送或部署。
+
+## 建筑多样性、建筑广告与英文告示（2026-09-12）
+
+商铺新增 PALM & BEAN 咖啡厅、SUNSET BURGER 汉堡店、LUCKY MARKET 便利店、COPPER RECORDS 唱片店、COAST PHARMACY 药房、OCEAN DINER 餐厅六种身份。层高、配色、门头、橱窗、菜单、檐口及屋顶立体标志随身份变化；餐饮室内使用柜台、厨房与卡座。公园增加开放入口、英文园规与喷泉。住宅有房屋广告，其他建筑有双面楼顶广告，保持原来的地块和入口。
+
+英文路牌包括 PALM AVENUE、MARKET STREET 等连续街段共享的街名，以及 SPEED LIMIT / NO PARKING / PEDESTRIAN CROSSING 告示。告示是静态街景，不改变车流规则。生成的复古汉堡图已作为楼顶广告贴图接入；素材路径和完整内置 image_gen 提示词见 `public/textures/README.md`。
+
+`tests/venues.test.ts` 验证六类身份和层高、跨区块稳定性、街名连续性，并用真实 City、Three.js 射线及 Rapier 控制器验证六类店铺各自最左/最右偏置入口的可视净空与双向步行；共享广告材质在区块卸载后仍保留。测试明确按地块中心归属加载附近区块，不能按建筑中心假定所有权。
+
+本轮全量测试记录为 45 项中 44 项通过，1 项失败：执行期间工作区新增的 `steep road terrain collider stays below the driving surface`，报告 terrain collider 32.2704 高于 surface 31.7351。该坡地碰撞改动不在本轮建筑范围，保留现场。本轮场所用例及既有建筑进出用例通过，生产构建通过，保留既有 bundle 大小提示。
+
+浏览器实际检查汉堡店、咖啡厅、公园及路口英文牌，图片加载成功并显示在广告牌上。四个固定机位 GPU 渲染采样约 2.41–19.52ms，全场景 7 个点光源；这是静态画面渲染检查，不是完整键鼠游玩或持续帧率验收。截图保存在 `artifacts/venue-burger.png`、`venue-cafe.png`、`venue-park.png`、`venue-street.png`。未提交、推送或部署。
+
+## 手机端分支与本地城市改动整合（2026-09-12）
+
+合入 `feat/mobile-touch-controls`，保留本地沿街地块、可进入建筑、场所广告、室内灯光预算、NPC 战斗及坡道路口碰撞改动。重叠的 Game、HTML、CSS 和文档由 Git 自动合并，无需舍弃任何一侧实现。
+
+整合后 `npm test` 49/49 通过，`npm run build` 通过，`git diff --check` 通过；保留 bundle 大小提示。Ego Chromium 在 390 × 844 视口启用触屏模拟，验证无 Pointer Lock 启动、真实触摸事件进入摇杆输入、暂停清空移动与射击状态并隐藏控件。该检查不代表真机多指操作、完整驾驶飞行或持续帧率验收。

@@ -23,7 +23,7 @@ test("HUD switches between walking, driving, flying and paused presentation", ()
     coins: 3, health: 50, maxHealth: 100, weapon: WEAPONS[0],
     weaponState: { ammo: 15, reloadTime: 0 }, speed: 10, flying: false, driving: false,
     mode: "playing", hitTime: 0, collectedCoins: 20, hits: 2, travel: 1200,
-    nearShop: true, nearHelicopter: true, nearVehicle: true, nearDriver: true, entry: false,
+    nearShop: true, nearHelicopter: true, nearVehicle: true, nearDriver: true, nearEntrance: false, entry: false,
     chunk: { x: -1, z: 2 }, district: "住宅区", fps: 60, chunks: 49,
   };
   renderHud(state, doc);
@@ -33,6 +33,8 @@ test("HUD switches between walking, driving, flying and paused presentation", ()
   assert.equal(doc.getElementById("location").textContent, "BLOCK -1 / 2");
   assert.equal(doc.getElementById("interaction").innerHTML, "<kbd>E</kbd> 武器商店 · 3 枚金币起");
   assert.equal(doc.getElementById("crosshair").hidden, false);
+  renderHud({ ...state, nearShop: false, nearHelicopter: false, nearVehicle: false, nearDriver: false, nearEntrance: true }, doc);
+  assert.equal(doc.getElementById("interaction").innerHTML, "入口开放 · 直接走入");
   renderHud({ ...state, driving: true, nearShop: false, entry: true }, doc);
   assert.equal(doc.getElementById("weapon-status").hidden, true);
   assert.equal(doc.getElementById("speed").textContent, "36");

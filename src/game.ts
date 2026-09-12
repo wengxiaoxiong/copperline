@@ -1,3 +1,4 @@
+import { plotPoint } from "./parcels";
 import { renderHud } from "./hud";
 import { renderEquipmentPanel } from "./equipment-panel";
 import { traceShot } from "./targeting";
@@ -67,8 +68,8 @@ export class Game {
   damageTime = 0;
   roadkills = 0;
   hits = 0;
-  seed = "COPPER-1987";
-  sun = new T.DirectionalLight(0xffd098, 2.4);
+  seed = "PALM-GROVE-2026";
+  sun = new T.DirectionalLight(0xffeed8, 2.6);
   effects: Effect[] = [];
   toastTime = 0;
   hitTime = 0;
@@ -101,15 +102,15 @@ export class Game {
       powerPreference: "high-performance",
     });
     this.renderer.setSize(innerWidth, innerHeight);
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFSoftShadowMap;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.outputColorSpace = T.SRGBColorSpace;
-    this.scene.background = new T.Color(0x99996a);
-    this.scene.fog = new T.Fog(0x99996a, 115, 285);
-    this.scene.add(new T.HemisphereLight(0xbdc4a2, 0x796b4b, 1.65));
+    this.scene.background = new T.Color(0xbad9e7);
+    this.scene.fog = new T.Fog(0xbad9e7, 145, 300);
+    this.scene.add(new T.HemisphereLight(0xd5ecff, 0x68715b, 1.8));
     this.sun.position.set(-55, 38, 30);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -141,6 +142,10 @@ export class Game {
     this.controller.setSlideEnabled(true);
     this.population = new Population(this.scene, this.physics);
     this.population.hurtPlayer = (amount) => this.damagePlayer(amount);
+    this.population.onShot = (from, to) => {
+      this.tracer(from, to);
+      this.sound.shot(true);
+    };
     this.population.onRunOver = (_person, car) => {
       if (car !== this.vehicle) return;
       this.roadkills++; this.hitTime = 0.2; this.notify("有人被你碾倒了 · 掉落金币");
@@ -313,7 +318,7 @@ export class Game {
     });
     $("start").addEventListener("click", () => {
       const seed =
-        ($("seed") as HTMLInputElement).value.trim() || "COPPER-1987";
+        ($("seed") as HTMLInputElement).value.trim() || "PALM-GROVE-2026";
       if (seed !== this.seed) {
         this.seed = seed;
         this.reset();
@@ -439,6 +444,20 @@ export class Game {
     if (this.driving || this.flying || this.entry) return false;
     const p = this.activePosition().add(this.city.offset);
     return Math.hypot(p.x - SHOP.x, p.z - SHOP.z) < 5 && Math.abs(p.y - worldPlan(this.city.seed).surfaceAt(SHOP.x, SHOP.z)) < 3;
+  }
+  nearBuildingEntrance() {
+    if (this.driving || this.flying || this.entry) return false;
+    const p = this.activePosition().add(this.city.offset);
+    for (const c of this.city.chunks.values()) {
+      for (const b of c.layout.buildings) {
+        if (!b.entrance) continue;
+        const entrance = plotPoint(b, b.entrance.x, b.entrance.z);
+        const wx = c.cx * BLOCK + entrance.x;
+        const wz = c.cz * BLOCK + entrance.z;
+        if (Math.hypot(p.x - wx, p.z - wz) < 1.6 && Math.abs(p.y - b.y) < 2.5) return true;
+      }
+    }
+    return false;
   }
   positionShop() {
     this.shop.position.set(SHOP.x - this.city.offset.x, worldPlan(this.city.seed).surfaceAt(SHOP.x, SHOP.z), SHOP.z - this.city.offset.z);
@@ -1023,7 +1042,7 @@ export class Game {
       speed: this.speed, flying: this.flying, driving: this.driving, mode: this.mode,
       hitTime: this.hitTime, collectedCoins: this.collectedCoins, hits: this.hits, travel: this.travel,
       nearShop: this.nearShop(), nearHelicopter: !this.driving && !this.flying && this.nearHelicopter(),
-      nearVehicle: !!near, nearDriver: !!near && !!near.driver, entry: !!this.entry,
+      nearVehicle: !!near, nearDriver: !!near && !!near.driver, nearEntrance: this.nearBuildingEntrance(), entry: !!this.entry,
       chunk: chunkAt(p.x, p.z), district: DISTRICT_NAMES[worldPlan(this.city.seed).district(p.x, p.z)],
       fps: this.fps, chunks: this.city.chunks.size,
     });
@@ -1186,6 +1205,7 @@ export class Game {
     const anchor = this.activePosition();
     this.sun.position.copy(anchor).add(new T.Vector3(-55, 38, 30));
     this.sun.target.position.copy(anchor);
+    this.city.updateLighting(this.camera.position);
     this.renderer.render(this.scene, this.camera);
     this.hudTime += dt;
     if (this.hudTime > 0.1) {

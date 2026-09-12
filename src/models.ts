@@ -231,6 +231,11 @@ export function createPerson(shirtColor = 0x24241e) {
     g.add(hand);
     arms.push(g);
   }
+  // Every civilian carries a compact sidearm.  It is parented to the right hand
+  // so it points forward when the armed pose raises the arm.
+  const gunMat = mat(0x202522);
+  box(arms[1], 0.07, 0.07, 0.38, 0, -0.55, -0.12, gunMat);
+  box(arms[1], 0.09, 0.16, 0.08, 0, -0.48, 0.04, gunMat);
   return {
     root,
     head,

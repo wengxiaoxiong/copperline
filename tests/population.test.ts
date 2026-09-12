@@ -53,30 +53,81 @@ test('NPC hits resolve instance identity, panic and death survive streaming and 
   crowd.update(1,delta.clone().negate(),delta,87,[]); assert.equal(p.health,0);
   crowd.reset(); world.free();
 });
-test('pedestrians charge the player in melee, and moving traffic runs them down for loot', async () => {
+test('pedestrians only shoot after a conflict, back away, and run-overs need multiple hits', async () => {
   await R.init(); const world = new R.World({x:0,y:0,z:0}), crowd = new Population(new T.Scene(), world), zero = new T.Vector3(), far = new T.Vector3(1000,0,1000);
   crowd.update(0, zero, zero, 87, []);
-  // A pedestrian inside melee range swings immediately and deals damage.
+  // By default a pedestrian in range does not open fire.
   const brawler = crowd.people.find(a => a.health > 0)!;
   crowd.cars.forEach(c => { c.actualSpeed = 0; });
-  brawler.position.set(1.2, brawler.position.y, 0); brawler.attack = 0;
-  let hits = 0; crowd.hurtPlayer = () => { hits++; };
+  brawler.position.set(5, brawler.position.y, 0); brawler.gunCooldown = 0; brawler.chasing = 1;
+  let hits = 0, shots = 0; crowd.hurtPlayer = () => { hits++; }; crowd.onShot = () => { shots++; };
   crowd.update(1/60, zero, zero, 87, []);
-  assert.ok(hits > 0, 'pedestrian melee reaches the player');
-  assert.ok(brawler.attack > 0 && brawler.chasing === 1);
-  // A car driving over a pedestrian kills them and spills coins.
+  assert.equal(hits, 0, 'pedestrians ignore the player before a conflict');
+  assert.equal(shots, 0, 'neutral pedestrians do not fire at other pedestrians');
+  // A gunshot sound turns nearby civilians hostile.
+  brawler.position.set(5, brawler.position.y, 0); brawler.chasing = 1; brawler.gunCooldown = 0;
+  crowd.scare(zero);
+  crowd.update(1/60, zero, zero, 87, []);
+  assert.ok(hits > 0 && shots > 0, 'pedestrian gunfire reaches the player after a conflict');
+  assert.ok(brawler.gunCooldown > 0 && brawler.chasing === 1);
+  assert.ok(brawler.position.x > 5, 'nearby shooter retreats instead of charging');
+  // A car driving over a pedestrian knocks them down first.
   const victim = crowd.people.find(a => a.health > 0 && a.id !== brawler.id)!;
   const car = crowd.cars[0];
   crowd.cars.forEach(c => { c.actualSpeed = 0; });
   car.actualSpeed = 20;
   victim.position.set(500, victim.position.y, 500);
   car.body.setTranslation({ x: 500, y: victim.position.y, z: 500 }, true);
+  crowd.update(0, far, zero, 87, []);
+  assert.ok(victim.health > 0, 'first run-over only knocks the pedestrian down');
+  assert.ok(victim.down > 0, 'pedestrian is down after being run over');
+  // A second run-over finishes them and spills coins.
   const before = crowd.drops.length;
   crowd.update(0, far, zero, 87, []);
-  assert.equal(victim.health, 0);
+  assert.equal(victim.health, 0, 'second run-over kills the downed pedestrian');
   assert.equal(crowd.drops.length - before, 3);
   assert.equal(crowd.collectDrops(zero, zero, 5, () => 0), 3);
   assert.equal(crowd.drops.length, 0);
+  crowd.reset(); assert.equal(world.bodies.len(), 0); world.free();
+});
+test('carjacking spawns a hostile driver that shoots the player', async () => {
+  await R.init(); const world = new R.World({x:0,y:0,z:0}), crowd = new Population(new T.Scene(), world), zero = new T.Vector3();
+  crowd.update(0, zero, zero, 87, []);
+  const car = crowd.cars.find(a => !a.parked)!;
+  car.actualSpeed = 0;
+  // Move the car next to the player so the driver is in attack range.
+  car.body.setTranslation({ x: 5, y: 1, z: 0 }, true);
+  car.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+  assert.ok(crowd.beginEntry(car));
+  let hits = 0; crowd.hurtPlayer = () => { hits++; };
+  crowd.takeControl(car);
+  const driver = crowd.people.find(p => p.id === `${car.id}:driver`)!;
+  assert.ok(driver, 'a driver is spawned when the car is taken');
+  assert.ok(driver.hostile > 0, 'the driver is hostile');
+  crowd.update(1/60, zero, zero, 87, []);
+  assert.ok(hits > 0, 'the driver shoots the player');
+  crowd.reset(); assert.equal(world.bodies.len(), 0); world.free();
+});
+test('hostile pedestrians respect line of sight and do not shoot through walls', async () => {
+  await R.init(); const world = new R.World({ x: 0, y: 0, z: 0 }), crowd = new Population(new T.Scene(), world), zero = new T.Vector3();
+  crowd.update(0, zero, zero, 87, []);
+  const brawler = crowd.people.find(a => a.health > 0)!;
+  brawler.position.set(5, 1.25, 0); brawler.gunCooldown = 0; brawler.hostile = 15;
+  // Wall between shooter and player.
+  const wall = world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(2.5, 1.25, 0));
+  world.createCollider(R.ColliderDesc.cuboid(0.2, 1.25, 2), wall);
+  world.step();
+  let hits = 0, shots = 0;
+  crowd.hurtPlayer = () => { hits++; };
+  crowd.onShot = () => { shots++; };
+  crowd.update(1/60, zero, zero, 87, []);
+  assert.equal(hits, 0, 'blocked shot does not damage the player');
+  assert.ok(shots > 0, 'blocked shot still draws a tracer');
+  // Remove wall and confirm damage goes through.
+  world.removeRigidBody(wall);
+  brawler.gunCooldown = 0;
+  crowd.update(1/60, zero, zero, 87, []);
+  assert.ok(hits > 0, 'clear shot damages the player');
   crowd.reset(); assert.equal(world.bodies.len(), 0); world.free();
 });
 test('pedestrians maintain personal space at shared spawn points and while chasing', async () => {
