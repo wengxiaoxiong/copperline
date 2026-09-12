@@ -9,3 +9,4 @@ artifacts/
 *.key
 *.p12
 *.pfx
+.vercel
