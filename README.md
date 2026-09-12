@@ -14,7 +14,7 @@ The visual direction draws on early-2000s console games: warm evening light, wea
 
 ## Play locally
 
-Requires Node.js **22.13+**, npm, and a desktop browser with WebGL 2.
+Requires Node.js **22.13+**, npm, and a modern desktop or mobile browser with WebGL 2.
 
 ```sh
 git clone https://github.com/wengxiaoxiong/react-gta.git
@@ -25,7 +25,7 @@ npm run dev
 
 Open the address printed by Vite, normally `http://localhost:5173/`. Click **进入街区** to start. The current game interface is in Chinese.
 
-The game starts only after the browser grants **Pointer Lock**, which hides the mouse cursor and enables relative aiming. If an embedded browser rejects the request, open the same address in Chrome or Edge and click again. Esc pauses and releases the mouse. Browser or operating-system restrictions cannot be overridden by this page.
+On desktop, the game starts after the browser grants **Pointer Lock**, which hides the cursor and enables relative aiming. Mobile play uses on-screen controls and does not request Pointer Lock.
 
 ## Controls
 
@@ -43,13 +43,15 @@ The game starts only after the browser grants **Pointer Lock**, which hides the 
 | First-/third-person view | C |
 | Mute / unmute | N |
 
+Mobile play is designed for landscape orientation. The left joystick controls walking, driving and flight; dragging the open right side of the scene turns the camera. Hold **Fire** to shoulder-aim and shoot. A contextual button appears near cars, the helicopter and the weapon shop, and changes to Exit while driving or flying. The two smaller actions switch between jump/reload, handbrake, and helicopter climb/descent.
+
 The orange sedan is ahead of the spawn point. Walk or drive through gold coins to collect them. Defeated pedestrians also spill coins, so drive over or walk through the drop before it streams out. Red roadside practice targets take three ordinary hits. The MR-17 has a 30-round magazine and unlimited reserve ammunition, with a reload delay.
 
 The street is hostile: pedestrians within about 34 metres charge the player and land melee hits, draining the health bar above the ammo bar. At zero health the player is returned to a nearby road with health restored. Traffic and the player's own car will run pedestrians down, which kills them and drops their loot.
 
 ## What's implemented
 
-- Third-person movement, camera obstruction, shoulder aiming and vehicle follow camera. Sprinting is roughly 2.5× walking speed.
+- Third-person movement, camera obstruction, shoulder aiming and vehicle follow camera, with keyboard/mouse controls on desktop and joystick, look gestures, fire and contextual actions on touch devices.
 - Nearby vehicles share one ownership and driving model. Taking over traffic opens a door and makes its driver flee, preserving the vehicle body, paint and parked position.
 - Pedestrians react to gunshots, take damage and fall when defeated, dropping collectible coins. Nearby pedestrians turn hostile, chase the player and attack in melee; a moving vehicle knocks them down on contact. Camera and muzzle rays resolve the closest obstruction, including traffic and pedestrians.
 - A seeded coast, river and hills determine connected roads, bridges, roadside building placement and eight districts. Landmarks include a water tower, lighthouse, harbor crane and plaza.
@@ -75,7 +77,7 @@ npm run preview
 
 `npm run build` runs TypeScript checking and creates `dist/` for static hosting.
 
-18 automated tests cover deterministic generation, road connectivity and routing, road clearance, landmark placement, bridge colliders, reachable coins, signed coordinates, swept pickups, weapon timing, NPC hits and persistence, vehicle identity and streaming, map pause and pointer-lock failure/retry, and camera stability during firing.
+33 automated tests cover deterministic generation, roads and routing, bridge collision, weapons and NPCs, vehicle takeover, map pause, pointer-lock failure/retry, camera stability, joystick math and touch startup without Pointer Lock.
 
 `scripts/city-scenario.js` runs actual Game methods and Rapier physics through the dev-only `window.__game` handle. `cityScenario(game)` checks entry, driving, exit, takeover, driver flight, shooting and navigation. `roadDrivingScenario(game)` traverses a 155 m slope and 139 m bridge. `cityRouteScenario(game)` advances a route in batches; pass `true` on subsequent calls until `done: true`. A roughly 1.55 km residential-to-harbor-to-coast route passed with 49 nearby chunks. Ordinary traffic is cleared for this road-clearance scenario.
 
@@ -85,6 +87,7 @@ These developer scripts reposition the scene. They are **not real-time FPS or co
 
 ```text
 src/game.ts                 Input, physics, gameplay and HUD
+src/mobile-controls.ts      Touch joystick, look gestures and contextual action buttons
 src/camera-rig.ts           Camera boom, aim transition and recoil
 src/world.ts                Tile rendering, streaming and resource lifecycle
 src/generation.ts           Geography, road graph, lots and navigation

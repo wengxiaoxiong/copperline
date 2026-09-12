@@ -11,6 +11,7 @@
 ```mermaid
 flowchart TD
   HTML[index.html / style.css] --> Main[main.ts 启动]
+  HTML --> Mobile[MobileControls 触屏输入]
   Main --> Game[Game 调度与玩法]
   Game --> City[City 区块加载]
   Game --> Population[Population 行人与车辆]
@@ -18,6 +19,7 @@ flowchart TD
   Game --> Inventory[Inventory 武器与购买]
   Inventory --> WeaponState[WeaponState 时序]
   Game --> CameraRig[CameraRig 镜头姿态]
+  Game --> Mobile
   Game --> Presentation[hud / equipment-panel 呈现]
   Game --> Targeting[targeting 双射线命中]
   City --> Landscape[buildLandscape 地形与碰撞]
@@ -46,6 +48,7 @@ flowchart TD
 | [targeting.ts](../src/targeting.ts) | 相机瞄准、散布与枪口遮挡 | 返回命中结果；调用方先更新场景矩阵，模块不扣血或播放特效 |
 | [combat.ts](../src/combat.ts) | 弹匣、射击冷却、换弹、后坐力状态 | 不负责命中判定，也不依赖渲染或 DOM |
 | [camera-rig.ts](../src/camera-rig.ts) | 第一/第三人称姿态、支臂、瞄准过渡、后坐力偏移 | 场景避障与最终相机应用在 Game 中 |
+| [mobile-controls.ts](../src/mobile-controls.ts) | 摇杆手势、右侧视角拖动、按钮按压状态与情境文案 | 只拥有触摸输入；不决定上车、射击或载具规则 |
 | [atlas.ts](../src/atlas.ts) | Canvas 2D 大小地图、平移缩放、导航、探索记录 | 通过状态回调获取世界坐标；关闭交给 Game |
 | [models.ts](../src/models.ts)、[armory.ts](../src/armory.ts)、[retro.ts](../src/retro.ts) | 程序化人物、汽车、直升机、武器商店、额外武器、纹理与植物 | 提供可视对象，玩法状态由调用方维护 |
 | [vendor/blackwater](../src/vendor/blackwater/) | 上游改编枪械呈现和音效 | 保留原许可证，见 THIRD_PARTY_NOTICES |
@@ -54,9 +57,9 @@ flowchart TD
 
 `index.html` 提供画布、菜单、HUD、地图和装备面板。`main.ts` 先禁用开始按钮，等待 `RAPIER.init()`，再构造 `Game`。构造过程创建渲染器、物理世界、城市、玩家、车辆、地图和事件监听器，随后进入动画循环。初始化失败会显示错误面板。
 
-`Game.mode` 有 `menu`、`playing`、`paused`、`map`、`equipment` 五种值。驾驶和飞行另由 `driving`、`flying` 表示，上车过程由 `entry` 表示，它们不是独立的顶层模式。
+`Game.mode` 有 `menu`、`playing`、`paused`、`map`、`equipment` 五种值。驾驶和飞行另由 `driving`、`flying` 表示，上车过程由 `entry` 表示，它们不是独立的顶层模式。键盘和触屏输入最终合并到同一组步行、驾驶、飞行和战斗状态，不复制玩法。
 
-开始或恢复时，`start()` 请求 Pointer Lock；只有实际获得鼠标锁定才进入 `beginPlaying()`。失败、拒绝或超时会保留暂停状态并允许重试。打开地图或装备面板会清空移动/射击输入、停止推进玩法并释放鼠标；返回需要重新获取锁定。失焦和页面隐藏也会触发暂停。
+桌面端开始或恢复时，`start()` 请求 Pointer Lock；只有实际获得鼠标锁定才进入 `beginPlaying()`。触屏设备直接进入游戏，由 `MobileControls` 提供摇杆、视角和按压状态。打开地图、装备面板或暂停时，两种输入都会被清空，避免恢复后继续移动或射击。失焦和页面隐藏也会触发暂停。
 
 `animate()` 每帧执行，玩法帧时间限制为最多 0.05 秒：
 

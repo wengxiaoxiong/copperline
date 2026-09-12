@@ -31,6 +31,7 @@ npm run preview
 | [camera.test.ts](../tests/camera.test.ts) | 后坐力不漂移、仰视、瞄准过渡、第一人称姿态 |
 | [game-camera.test.ts](../tests/game-camera.test.ts) | Game 射击与相机更新组合回归 |
 | [pointer-lock.test.ts](../tests/pointer-lock.test.ts) | 锁定失败重试、地图暂停和恢复条件 |
+| [mobile-controls.test.ts](../tests/mobile-controls.test.ts) | 摇杆死区、向量归一化、触屏设备判定与无 Pointer Lock 启动 |
 
 可通过 `npx tsx --test tests/inventory.test.ts` 运行单个文件。测试包含纯逻辑、真实 Rapier 世界以及部分 DOM/Game 替身；通过测试不等于完整浏览器交互已验收。
 
@@ -46,7 +47,7 @@ npm run preview
 
 这些函数会改变玩家位置和场景状态，部分检查会清理车流，应在可重置的开发会话运行。旧 [browser-scenario.js](../scripts/browser-scenario.js) 面向原方格路网，不应作为新城市的验收标准。
 
-真实游玩还需在支持 WebGL 2 和 Pointer Lock 的桌面浏览器检查：开始/暂停/恢复、步行与视角、驾驶/飞行进出、射击换弹、购买切枪、地图返回。脚本调用 Game 方法不能证明键鼠链路、画面效果或实时帧率正常。
+真实游玩还需在支持 WebGL 2 和 Pointer Lock 的桌面浏览器检查键鼠链路；移动端需用真机检查多指同时操作、横竖屏、安全区、连续射击与载具操控手感。DevTools 设备模拟可检查布局和基本触摸事件，不能代替真机帧率和手感验收。
 
 ## 修改功能时从哪里开始
 

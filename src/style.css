@@ -575,6 +575,279 @@ body.pointer-locked,
 body.pointer-locked #game {
   cursor: none;
 }
+
+#mobile-controls {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  html,
+  body,
+  #app,
+  #game {
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  #mobile-controls {
+    position: fixed;
+    inset: 0;
+    z-index: 7;
+    display: block;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #mobile-controls[hidden] {
+    display: none;
+  }
+  .mobile-joystick {
+    position: absolute;
+    left: max(18px, env(safe-area-inset-left));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    width: 148px;
+    height: 148px;
+    border-radius: 50%;
+    border: 2px solid #f7e6bd52;
+    background: radial-gradient(circle, #20372c4d 0 39%, #101d18a8 40% 100%);
+    box-shadow: inset 0 0 0 12px #fff1c408, 0 8px 30px #0005;
+    pointer-events: auto;
+  }
+  .mobile-joystick i {
+    position: absolute;
+    inset: 50%;
+    width: 76%;
+    height: 1px;
+    background: #fff3cd1f;
+    transform: translate(-50%, -50%);
+  }
+  .mobile-joystick i::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 1px;
+    height: 112px;
+    background: inherit;
+    transform: translate(-50%, -50%);
+  }
+  #mobile-joystick-knob {
+    position: absolute;
+    left: calc(50% - 31px);
+    top: calc(50% - 31px);
+    width: 62px;
+    height: 62px;
+    border-radius: 50%;
+    border: 2px solid #fff1c67a;
+    background: #c9ac73b8;
+    box-shadow: inset 0 0 18px #fff5d72e, 0 5px 18px #0006;
+    will-change: transform;
+  }
+  .mobile-action {
+    border: 1px solid #fff0c56b;
+    border-radius: 50%;
+    background: #172b23c9;
+    color: #fff7dd;
+    box-shadow: inset 0 0 18px #fff5d710, 0 5px 20px #0005;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    pointer-events: auto;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-action.pressed {
+    transform: scale(0.92);
+    background: #ddbd7bde;
+    color: #172b23;
+  }
+  .mobile-context {
+    position: absolute;
+    right: max(24px, env(safe-area-inset-right));
+    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 188px);
+    width: 82px;
+    height: 48px;
+    border-radius: 24px;
+    background: #d0b273e8;
+    color: #182a22;
+    border-color: #fff0c5b8;
+  }
+  .mobile-actions {
+    position: absolute;
+    right: max(18px, env(safe-area-inset-right));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    width: 228px;
+    height: 174px;
+    pointer-events: none;
+  }
+  .mobile-actions button {
+    position: absolute;
+  }
+  .mobile-fire {
+    right: 0;
+    bottom: 0;
+    width: 86px;
+    height: 86px;
+    background: #9b3d35d6;
+    border: 3px solid #ffd8a17d;
+  }
+  .mobile-fire span::before {
+    content: "";
+    display: block;
+    width: 17px;
+    height: 17px;
+    margin: 0 auto 3px;
+    border: 3px solid currentColor;
+    border-radius: 50%;
+  }
+  .mobile-small {
+    width: 58px;
+    height: 58px;
+  }
+  #mobile-primary {
+    right: 88px;
+    bottom: 86px;
+  }
+  #mobile-secondary {
+    right: 151px;
+    bottom: 22px;
+  }
+  #interaction,
+  footer {
+    display: none !important;
+  }
+  .map-panel {
+    left: max(14px, env(safe-area-inset-left));
+    top: 72px;
+    bottom: auto;
+    width: 108px;
+    height: 108px;
+    border-width: 4px;
+  }
+  #map {
+    width: 100px;
+    height: 100px;
+  }
+  .map-meta {
+    left: 43px;
+    font-size: 13px;
+  }
+  body:not(.menu-open) header .district {
+    right: max(22px, env(safe-area-inset-right));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    font-size: 18px;
+  }
+  body:not(.menu-open) header .icon-button {
+    right: max(18px, env(safe-area-inset-right));
+    top: max(14px, env(safe-area-inset-top));
+    width: 36px;
+    height: 36px;
+    opacity: 0.8;
+    pointer-events: auto;
+  }
+  .retro-clock {
+    display: none;
+  }
+  .retro-bars {
+    right: max(65px, calc(env(safe-area-inset-right) + 60px));
+    top: max(18px, env(safe-area-inset-top));
+    width: 112px;
+  }
+  .wallet,
+  .equipment {
+    right: max(68px, calc(env(safe-area-inset-right) + 64px));
+  }
+  .wallet {
+    top: max(60px, calc(env(safe-area-inset-top) + 54px));
+  }
+  .equipment {
+    top: max(16px, env(safe-area-inset-top));
+  }
+  #toast {
+    top: 16%;
+    max-width: 70vw;
+    white-space: normal;
+    text-align: center;
+    font-size: 14px;
+  }
+  #menu {
+    padding-top: max(72px, calc(env(safe-area-inset-top) + 48px));
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  }
+  #paused,
+  #equipment-panel {
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+  }
+  .pause-card > p:first-of-type,
+  .pause-card > small {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  .map-panel {
+    display: none;
+  }
+  .mobile-joystick {
+    width: 132px;
+    height: 132px;
+  }
+  .mobile-actions {
+    transform: scale(0.9);
+    transform-origin: right bottom;
+  }
+  .menu-card h1 {
+    font-size: 42px;
+    margin: 14px 0;
+  }
+  .menu-card p {
+    line-height: 1.7;
+  }
+  .menu-tags {
+    margin: 16px 0 22px;
+  }
+}
+
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 550px) {
+  #menu {
+    align-items: center;
+    padding: max(24px, env(safe-area-inset-top)) max(38px, env(safe-area-inset-right))
+      max(18px, env(safe-area-inset-bottom)) max(38px, env(safe-area-inset-left));
+  }
+  .menu-card {
+    width: min(420px, 54vw);
+  }
+  .menu-card .eyebrow {
+    font-size: 8px;
+  }
+  .menu-card h1 {
+    margin: 10px 0;
+    font-size: clamp(34px, 8vh, 44px);
+    line-height: 1.03;
+  }
+  .menu-card p {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .menu-tags {
+    gap: 9px;
+    margin: 12px 0 14px;
+    font-size: 8px;
+  }
+  .menu-tags span {
+    padding-bottom: 4px;
+  }
+  button#start {
+    padding: 11px 16px;
+  }
+  .menu-bottom {
+    margin-top: 8px;
+  }
+  .menu-bottom input {
+    margin-top: 2px;
+  }
+}
 #lock-status {
   color: #ffd28c;
   border-left: 2px solid #ffcc78;

@@ -14,6 +14,7 @@ import { Inventory, WEAPONS, SHOP } from "./inventory";
 import { createShop, createExtraWeapons } from "./armory";
 import { Atlas } from "./atlas";
 import { CameraRig } from "./camera-rig";
+import { MobileControls, type MobileContextAction } from "./mobile-controls";
 const $ = (id: string) => document.getElementById(id)!;
 const UP = new T.Vector3(0, 1, 0),
   tmp = new T.Vector3();
@@ -85,6 +86,7 @@ export class Game {
   lockAttempt = 0;
   discardPointerMove = false;
   cameraRig = new CameraRig();
+  mobile: MobileControls;
   clock = new T.Clock();
   travel = 0;
   floatShifts = 0;
@@ -165,6 +167,42 @@ export class Game {
     this.camera.position.set(12, 7, 30);
     this.camera.lookAt(0, 1, 4);
     this.physics.step();
+    this.mobile = new MobileControls({
+      canvas: this.canvas,
+      onLook: (dx, dy) => {
+        if (this.mode !== "playing") return;
+        this.yaw -= dx * 0.004;
+        this.pitch = T.MathUtils.clamp(this.pitch - dy * 0.0032, -0.7, 0.55);
+      },
+      onContext: () => {
+        if (this.mode !== "playing") return;
+        if (!this.driving && !this.flying && this.nearShop()) this.openEquipment("shop");
+        else this.interact();
+      },
+      onPrimaryPress: () => {
+        if (
+          this.mode === "playing" &&
+          !this.driving &&
+          !this.flying &&
+          !this.entry &&
+          this.controller.computedGrounded()
+        ) this.vertical = 6;
+      },
+      onSecondaryPress: () => {
+        if (
+          this.mode === "playing" &&
+          !this.driving &&
+          !this.flying &&
+          !this.entry &&
+          this.weaponState.reload()
+        ) this.sound.reload();
+      },
+      onFireChange: (active) => {
+        const canFire = active && this.mode === "playing" && !this.driving && !this.flying && !this.entry;
+        this.firing = canFire;
+        this.aiming = canFire;
+      },
+    });
     this.bind();
     this.syncModels();
     this.drawMap();
@@ -305,6 +343,10 @@ export class Game {
   }
   start() {
     if (this.lockPending) return;
+    if (this.mobile.enabled) {
+      this.beginPlaying();
+      return;
+    }
     if (document.pointerLockElement === this.canvas) {
       this.beginPlaying();
       return;
@@ -365,13 +407,17 @@ export class Game {
         .connect(this.sound.master);
       this.engineOsc.start();
     }
-    this.notify("Tab 物品栏 · 1–4 切枪 · 出生点旁 E 买武器 · C 视角");
+    this.updateHud();
+    this.notify(this.mobile.enabled
+      ? "左侧摇杆移动 · 右侧滑动视角 · 按住开火"
+      : "Tab 物品栏 · 1–4 切枪 · 出生点旁 E 买武器 · C 视角");
   }
   openMap() {
     this.mode = "map";
     this.keys.clear(); this.firing = false; this.aiming = false;
     if (this.engineGain && this.sound.ctx) this.engineGain.gain.setTargetAtTime(0, this.sound.ctx.currentTime, 0.05);
     this.atlas.open();
+    this.mobile.hide();
     if (document.pointerLockElement) document.exitPointerLock();
   }
   pause() {
@@ -383,6 +429,7 @@ export class Game {
     this.keys.clear();
     this.firing = false;
     this.aiming = false;
+    this.mobile.hide();
     $("paused").hidden = false;
     if (this.engineGain && this.sound.ctx)
       this.engineGain.gain.setTargetAtTime(0, this.sound.ctx.currentTime, 0.05);
@@ -407,6 +454,7 @@ export class Game {
     this.keys.clear(); this.firing = false; this.aiming = false;
     $("equipment-panel").hidden = false; $("equipment-message").textContent = "";
     this.renderEquipment();
+    this.mobile.hide();
     if (this.engineGain && this.sound.ctx) this.engineGain.gain.setTargetAtTime(0, this.sound.ctx.currentTime, .05);
     if (document.pointerLockElement) document.exitPointerLock();
   }
@@ -421,6 +469,7 @@ export class Game {
     this.keys.clear();
     this.firing = false;
     this.aiming = false;
+    this.mobile.clear();
     this.view = "third";
     this.viewChanged = true;
     this.speed = 0;
@@ -630,9 +679,24 @@ export class Game {
     }
     if (this.flying) {
       const body = this.helicopterBody, pos = body.translation();
-      const throttle = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
-      const steer = (this.keys.has("KeyA") ? 1 : 0) - (this.keys.has("KeyD") ? 1 : 0);
-      const lift = (this.keys.has("Space") ? 1 : 0) - ((this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) ? 1 : 0);
+      const throttle = T.MathUtils.clamp(
+        (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0) - this.mobile.movement.y,
+        -1,
+        1,
+      );
+      const steer = T.MathUtils.clamp(
+        (this.keys.has("KeyA") ? 1 : 0) - (this.keys.has("KeyD") ? 1 : 0) - this.mobile.movement.x,
+        -1,
+        1,
+      );
+      const lift = T.MathUtils.clamp(
+        (this.keys.has("Space") ? 1 : 0) -
+          (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") ? 1 : 0) +
+          (this.mobile.primaryHeld ? 1 : 0) -
+          (this.mobile.secondaryHeld ? 1 : 0),
+        -1,
+        1,
+      );
       this.speed += throttle * 22 * dt;
       this.speed *= Math.exp(-dt * (throttle ? 0.16 : 1.25));
       this.speed = T.MathUtils.clamp(this.speed, -12, 42);
@@ -643,7 +707,7 @@ export class Game {
       const y = T.MathUtils.clamp(pos.y + lift * 11 * dt, ground + 0.12, 90);
       body.setNextKinematicTranslation({ x: pos.x + forward.x * this.speed * dt, y, z: pos.z + forward.z * this.speed * dt });
       body.setNextKinematicRotation(new T.Quaternion().setFromEuler(new T.Euler(throttle * -0.08, this.helicopterYaw, -steer * 0.08, "YXZ")));
-      if (!this.keys.has("AltLeft")) {
+      if (!this.keys.has("AltLeft") && !this.mobile.looking) {
         const delta = Math.atan2(Math.sin(this.helicopterYaw - this.yaw), Math.cos(this.helicopterYaw - this.yaw));
         this.yaw += delta * (1 - Math.exp(-dt * 1.8));
       }
@@ -656,10 +720,18 @@ export class Game {
         );
       let speed = v.x * forward.x + v.z * forward.z;
       const throttle =
-        (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
+        T.MathUtils.clamp(
+          (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0) - this.mobile.movement.y,
+          -1,
+          1,
+        );
       const steer =
-        (this.keys.has("KeyA") ? 1 : 0) - (this.keys.has("KeyD") ? 1 : 0);
-      const brake = this.keys.has("Space");
+        T.MathUtils.clamp(
+          (this.keys.has("KeyA") ? 1 : 0) - (this.keys.has("KeyD") ? 1 : 0) - this.mobile.movement.x,
+          -1,
+          1,
+        );
+      const brake = this.keys.has("Space") || this.mobile.primaryHeld;
       speed += throttle * (throttle * speed < 0 ? 32 : 18) * dt;
       speed *= Math.exp(-(brake ? 3.2 : throttle === 0 ? 0.55 : 0.12) * dt);
       speed = T.MathUtils.clamp(speed, -13, 45);
@@ -689,7 +761,7 @@ export class Game {
         true,
       );
       this.speed = speed;
-      if (!this.keys.has("AltLeft")) {
+      if (!this.keys.has("AltLeft") && !this.mobile.looking) {
         const delta = Math.atan2(
           Math.sin(this.carYaw - this.yaw),
           Math.cos(this.carYaw - this.yaw),
@@ -698,13 +770,25 @@ export class Game {
       }
     } else {
       const f =
-          (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0),
+          T.MathUtils.clamp(
+            (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0) - this.mobile.movement.y,
+            -1,
+            1,
+          ),
         side =
-          (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
+          T.MathUtils.clamp(
+            (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0) + this.mobile.movement.x,
+            -1,
+            1,
+          );
       const moving = this.entry ? new T.Vector3() : new T.Vector3(side, 0, -f);
       if (moving.lengthSq() > 0) moving.normalize();
       moving.applyAxisAngle(UP, this.yaw);
-      const sprint = (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) && !this.aiming && !this.firing;
+      const sprint = (
+        this.keys.has("ShiftLeft") ||
+        this.keys.has("ShiftRight") ||
+        this.mobile.movement.magnitude > 0.88
+      ) && !this.aiming && !this.firing;
       const speed = this.aiming ? 2.7 : sprint ? 10.5 : 4;
       this.moving = moving.length() * (sprint ? 1.75 : 1);
       if (this.aiming || this.firing) this.person.root.rotation.y = this.yaw;
@@ -930,7 +1014,9 @@ export class Game {
   }
   updateHud() {
     const p = this.activePosition().add(this.city.offset);
-    const near = !this.driving && !this.flying && this.population.nearestVehicle(this.activePosition());
+    const near = !this.driving && !this.flying
+      ? this.population.nearestVehicle(this.activePosition())
+      : undefined;
     renderHud({
       coins: this.coins, health: this.health, maxHealth: this.maxHealth,
       weapon: this.inventory.spec, weaponState: this.weaponState,
@@ -940,6 +1026,20 @@ export class Game {
       nearVehicle: !!near, nearDriver: !!near && !!near.driver, entry: !!this.entry,
       chunk: chunkAt(p.x, p.z), district: DISTRICT_NAMES[worldPlan(this.city.seed).district(p.x, p.z)],
       fps: this.fps, chunks: this.city.chunks.size,
+    });
+    let contextAction: MobileContextAction = null;
+    if (!this.entry) {
+      if (this.flying) contextAction = "exit-helicopter";
+      else if (this.driving) contextAction = "exit-car";
+      else if (this.nearShop()) contextAction = "shop";
+      else if (this.nearHelicopter()) contextAction = "helicopter";
+      else if (near?.driver) contextAction = "takeover";
+      else if (near) contextAction = "enter";
+    }
+    this.mobile.render({
+      visible: this.mode === "playing",
+      locomotion: this.flying ? "flying" : this.driving ? "driving" : "walking",
+      contextAction,
     });
     this.canvas.dataset.state = JSON.stringify(this.snapshot());
     this.drawMap();
