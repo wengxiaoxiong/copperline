@@ -2,13 +2,14 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
     <meta name="theme-color" content="#172422" />
     <title>Copperline — 城市自由漫游</title>
   </head>
   <body>
     <div id="app">
       <canvas id="game"></canvas>
+      <div id="scope-overlay" hidden aria-hidden="true"><i></i><b></b></div>
       <div class="film-grain"></div>
       <header>
         <a class="wordmark" href="#"
@@ -68,10 +69,11 @@
         </div>
         <button id="mobile-context" class="mobile-action mobile-context" type="button">上车</button>
         <div class="mobile-actions">
+          <button id="mobile-scope" class="mobile-action mobile-small" type="button">开镜</button>
           <button id="mobile-secondary" class="mobile-action mobile-small" type="button">换弹</button>
           <button id="mobile-primary" class="mobile-action mobile-small" type="button">跳跃</button>
           <button id="mobile-fire" class="mobile-action mobile-fire" type="button" aria-label="开火">
-            <span>开火</span>
+            <span>按住连发</span>
           </button>
         </div>
       </div>
@@ -106,7 +108,7 @@
           <span class="eyebrow">TAKE A BREATHER</span>
           <h2>城市等你回来。</h2>
           <p>
-            WASD 移动 / 驾驶 · F 上下车 / 驾驶直升机<br />左键射击 · 右键瞄准 · R 换弹<br />Tab / I 物品栏 · 1–4 切枪 · E 武器商店<br />空格跳跃
+            WASD 移动 / 驾驶 · F 上下车 / 驾驶直升机<br />左键射击 · 右键瞄准 · R 换弹<br />Tab / I 物品栏 · 1–6 切枪 · E 武器商店<br />空格跳跃
             / 手刹 / 上升 · Shift 下降 · C 切换视角 · M 地图 · N 静音
           </p>
           <p id="lock-status" hidden role="alert">
@@ -126,7 +128,7 @@
       <section id="equipment-panel" hidden role="dialog" aria-modal="true" aria-labelledby="equipment-title">
         <div class="armory-card"><span class="eyebrow">COPPERLINE / ARMORY</span><h2 id="equipment-title">我的物品栏</h2>
         <p id="equipment-wallet"></p><div id="equipment-items"></div><p id="equipment-message" role="status"></p>
-        <p>1–4 快速切换 · Tab / I 物品栏 · 商店按 E 购买<br />换弹免费 · 武器与金币在复活后保留，重新开始会清空</p>
+        <p>1–6 快速切换 · Tab / I 物品栏 · 商店按 E 购买<br />狙击枪：右键或手机开镜按钮 · 换弹免费<br />武器与金币在复活后保留，重新开始会清空</p>
         <button id="equipment-close">返回街区 <kbd>Esc / Tab</kbd></button></div>
       </section>
       <div id="fatal" hidden></div>

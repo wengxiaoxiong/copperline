@@ -77,6 +77,7 @@ export class MobileControls {
   private lookX = 0;
   private lookY = 0;
   private active = false;
+  private holdResets: Array<() => void> = [];
   private vector: JoystickVector = { x: 0, y: 0, magnitude: 0 };
   primaryHeld = false;
   secondaryHeld = false;
@@ -111,6 +112,7 @@ export class MobileControls {
       return;
     }
 
+    if (this.root.dataset.locomotion && this.root.dataset.locomotion !== view.locomotion) this.clear();
     this.root.dataset.locomotion = view.locomotion;
     this.contextButton.hidden = view.contextAction === null;
     if (view.contextAction) this.contextButton.textContent = contextLabels[view.contextAction];
@@ -130,9 +132,16 @@ export class MobileControls {
   }
 
   clear() {
+    // Disabled touch controls must never cancel desktop mouse input during HUD refresh.
+    if (!this.enabled) return;
+    for (const reset of this.holdResets) reset();
     this.vector = { x: 0, y: 0, magnitude: 0 };
+    const joystickPointer = this.joystickPointer;
+    const lookPointer = this.lookPointer;
     this.joystickPointer = null;
     this.lookPointer = null;
+    if (joystickPointer !== null && this.joystick.hasPointerCapture(joystickPointer)) this.joystick.releasePointerCapture(joystickPointer);
+    if (lookPointer !== null && this.options.canvas.hasPointerCapture(lookPointer)) this.options.canvas.releasePointerCapture(lookPointer);
     this.primaryHeld = false;
     this.secondaryHeld = false;
     this.joystickKnob.style.transform = "translate3d(0, 0, 0)";
@@ -143,6 +152,13 @@ export class MobileControls {
   }
 
   private bind() {
+    // iOS callout and text selection are independent of touch-action.
+    document.addEventListener("contextmenu", event => {
+      if (this.active) event.preventDefault();
+    });
+    document.addEventListener("selectstart", event => {
+      if (this.active) event.preventDefault();
+    });
     const updateJoystick = (event: PointerEvent) => {
       if (event.pointerId !== this.joystickPointer) return;
       const rect = this.joystick.getBoundingClientRect();
@@ -161,7 +177,7 @@ export class MobileControls {
       this.joystickKnob.style.transform = "translate3d(0, 0, 0)";
     };
     this.joystick.addEventListener("pointerdown", (event) => {
-      if (!this.active) return;
+      if (!this.active || this.joystickPointer !== null) return;
       event.preventDefault();
       this.joystickPointer = event.pointerId;
       this.joystick.setPointerCapture(event.pointerId);
@@ -200,7 +216,7 @@ export class MobileControls {
       event.preventDefault();
       if (this.active) this.options.onContext();
     });
-    this.bindHold(this.fireButton, (pressed) => this.options.onFireChange(pressed));
+    this.bindHold(this.fireButton, (pressed) => this.options.onFireChange(pressed), true);
     this.bindHold(this.primaryButton, (pressed) => {
       this.primaryHeld = pressed;
       if (pressed) this.options.onPrimaryPress();
@@ -211,22 +227,39 @@ export class MobileControls {
     });
   }
 
-  private bindHold(button: HTMLButtonElement, onChange: (pressed: boolean) => void) {
+  private bindHold(button: HTMLButtonElement, onChange: (pressed: boolean) => void, dragToLook = false) {
     let pointer: number | null = null;
-    const release = (event: PointerEvent) => {
-      if (event.pointerId !== pointer) return;
+    let x = 0;
+    let y = 0;
+    const reset = () => {
+      const previous = pointer;
       pointer = null;
+      if (previous !== null && button.hasPointerCapture(previous)) button.releasePointerCapture(previous);
       button.classList.remove("pressed");
-      onChange(false);
+      if (previous !== null) onChange(false);
+    };
+    this.holdResets.push(reset);
+    const release = (event: PointerEvent) => {
+      if (event.pointerId === pointer) reset();
     };
     button.addEventListener("pointerdown", (event) => {
-      if (!this.active) return;
+      if (!this.active || button.hidden || pointer !== null) return;
       event.preventDefault();
       pointer = event.pointerId;
+      x = event.clientX;
+      y = event.clientY;
       button.setPointerCapture(event.pointerId);
       button.classList.add("pressed");
       onChange(true);
     });
+    button.addEventListener("pointermove", (event) => {
+      if (!dragToLook || !this.active || event.pointerId !== pointer) return;
+      event.preventDefault();
+      this.options.onLook(Math.max(-80, Math.min(80, event.clientX - x)), Math.max(-80, Math.min(80, event.clientY - y)));
+      x = event.clientX;
+      y = event.clientY;
+    });
+    button.addEventListener("contextmenu", event => event.preventDefault());
     button.addEventListener("pointerup", release);
     button.addEventListener("pointercancel", release);
     button.addEventListener("lostpointercapture", release);

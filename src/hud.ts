@@ -33,7 +33,7 @@ export function renderHud(state: HudState, doc: Pick<Document, "getElementById">
     : state.driving ? "空格 手刹 · F 下车"
     : state.weaponState.reloadTime > 0
       ? "正在更换弹匣…"
-      : "R 换弹 · 1–4 切枪 · Tab 物品栏";
+      : "R 换弹 · 1–6 切枪 · Tab 物品栏";
   $("crosshair").hidden = state.driving || state.flying || state.mode !== "playing";
   $("crosshair").classList.toggle("hit", state.hitTime > 0);
   $("progress").style.width = `${Math.min(100, state.collectedCoins * 5)}%`;
@@ -50,7 +50,7 @@ export function renderHud(state: HudState, doc: Pick<Document, "getElementById">
   $("controls").innerHTML = state.flying
     ? "<kbd>W S</kbd> 前后飞行 <kbd>A D</kbd> 转向 <kbd>SPACE</kbd> 上升 <kbd>SHIFT</kbd> 下降 <kbd>F</kbd> 离机 <kbd>C</kbd> 视角"
     : state.driving ? "<kbd>W S</kbd> 油门 / 倒车 <kbd>A D</kbd> 转向 <kbd>SPACE</kbd> 手刹 <kbd>F</kbd> 下车 <kbd>C</kbd> 视角 <kbd>M</kbd> 地图"
-    : "<kbd>W A S D</kbd> 移动 <kbd>SHIFT</kbd> 跑步 <kbd>F</kbd> 上车 <kbd>鼠标</kbd> 射击 <kbd>Tab</kbd> 物品栏 <kbd>1–4</kbd> 切枪 <kbd>C</kbd> 视角 <kbd>M</kbd> 地图";
+    : "<kbd>W A S D</kbd> 移动 <kbd>SHIFT</kbd> 跑步 <kbd>F</kbd> 上车 <kbd>鼠标</kbd> 射击 <kbd>Tab</kbd> 物品栏 <kbd>1–6</kbd> 切枪 <kbd>C</kbd> 视角 <kbd>M</kbd> 地图";
   $("interaction").style.display = (state.nearShop || state.nearHelicopter || state.nearVehicle || state.nearEntrance) && !state.entry ? "block" : "none";
   $("interaction").innerHTML = state.nearShop ? "<kbd>E</kbd> 武器商店 · 3 枚金币起" : state.nearHelicopter ? "<kbd>F</kbd> 驾驶直升机" : state.nearDriver ? "<kbd>F</kbd> 抢车 · 等车辆停下" : state.nearVehicle ? "<kbd>F</kbd> 上车" : "入口开放 · 直接走入";
   $("location").textContent = `BLOCK ${state.chunk.x} / ${state.chunk.z}`;

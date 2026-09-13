@@ -60,5 +60,16 @@ test("actual shooting and camera updates keep the settled camera stationary", as
   assert.equal(g.pitch, -0.08);
   assert.equal(g.yaw, -0.42);
   assert.ok(g.weaponState.shots > 100);
+  const initialDirection = g.camera.getWorldDirection(new T.Vector3());
+  for (let i = 0; i < 60; i++) {
+    g.yaw += .01; g.pitch += .002;
+    g.weaponState.update(1 / 60); g.fire(); g.updateCamera(1 / 60);
+  }
+  assert.ok(g.camera.getWorldDirection(new T.Vector3()).distanceTo(initialDirection) > .4, "continuous fire must allow yaw and pitch changes");
+  g.inventory.buy(4, 20); g.mode = "playing"; g.scopeHeld = true;
+  g.updateCamera(1 / 60);
+  assert.equal(g.camera.fov, 18);
+  g.mode = "paused"; g.updateCamera(1 / 60);
+  assert.ok(g.camera.fov > 50, "paused mode exits scope");
   g.physics.free();
 });

@@ -2,6 +2,7 @@ import * as T from "three";
 import R from "@dimforge/rapier3d-compat";
 import { BLOCK, randomFor, worldPlan, type RoadEdge } from "./generation";
 import { createCar, createPerson } from "./models";
+import { VEHICLES, type VehicleType } from "./vehicle-dynamics";
 
 // A clockwise circuit follows the lane on the inside of each block. Adjacent
 // blocks consequently travel in opposite directions on the same avenue.
@@ -41,6 +42,7 @@ class CrowdBatch {
   }
 }
 export type Vehicle = {
+  type: VehicleType;
   kind: "vehicle"; id: string; road: number; distance: number; direction: number; speed: number; actualSpeed: number;
   parked: boolean; driver: boolean; controller: "traffic" | "parked" | "player" | "entering";
   color: T.Color; body: R.RigidBody; model?: ReturnType<typeof createCar>; claimed: boolean;
@@ -87,10 +89,11 @@ export class Population {
     this.traffic = new CrowdBatch(scene, this.car.root, 80);
     scene.add(this.dropGroup);
   }
-  vehicle(id: string, road: number, along: number, direction: number, parked: boolean, color: T.Color): Vehicle {
+  vehicle(id: string, road: number, along: number, direction: number, parked: boolean, color: T.Color, type: VehicleType = "sedan"): Vehicle {
     const body = this.physics.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setCcdEnabled(true).setLinearDamping(0.18).setAngularDamping(4));
-    this.physics.createCollider(R.ColliderDesc.cuboid(0.99, 0.84, 2.18).setTranslation(0, 0.84, 0).setMass(1000).setFriction(0).setRestitution(0.08), body);
-    const car: Vehicle = { kind: "vehicle", id, road, distance: along, direction, speed: 5.5, actualSpeed: 0, parked, driver: !parked, controller: parked ? "parked" : "traffic", color, body, claimed: false };
+    const bike = type === "bicycle" || type === "motorcycle";
+    this.physics.createCollider(R.ColliderDesc.cuboid(bike ? .4 : .99, bike ? .65 : .84, bike ? 1.35 : 2.18).setTranslation(0, bike ? .65 : .84, 0).setMass(VEHICLES[type].mass).setFriction(0).setRestitution(0.08), body);
+    const car: Vehicle = { type, kind: "vehicle", id, road, distance: along, direction, speed: 5.5, actualSpeed: 0, parked, driver: !parked, controller: parked ? "parked" : "traffic", color, body, claimed: false };
     this.cars.push(car); return car;
   }
   addHomeCar(model: ReturnType<typeof createCar>, seed: number, offset = new T.Vector3()) {
@@ -101,7 +104,17 @@ export class Population {
     car.body.setBodyType(R.RigidBodyType.Dynamic, true);
     car.body.setTranslation({ x: 3, y: plan.surfaceAt(3, 12) + 0.08, z: 12 }, true);
     car.body.setEnabledRotations(true, true, true, true);
-    this.scene.add(model.root); this.syncModels(); return car;
+    this.scene.add(model.root);
+    (["bicycle", "motorcycle", "convertible"] as const).forEach((type, index) => {
+      const point = plan.sampleRoad(n.road, Math.min(n.road.length - 4, n.along + 8 + index * 7), n.road.width / 2 - 1);
+      const extra = this.vehicle(`home-${type}`, n.road.id, n.along, 1, true, new T.Color([0x79ae9c, 0xa04c38, 0xd7b46b][index]), type);
+      extra.claimed = true; extra.model = createCar(extra.color.getHex(), type);
+      extra.body.setBodyType(R.RigidBodyType.Dynamic, true);
+      extra.body.setTranslation({ x: point.x - offset.x, y: point.y + .08, z: point.z - offset.z }, true);
+      extra.body.setRotation(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0), point.yaw), true);
+      this.scene.add(extra.model.root);
+    });
+    this.syncModels(); return car;
   }
   reset() {
     for (const a of this.cars) {
@@ -222,7 +235,7 @@ export class Population {
   beginEntry(car: Vehicle) {
     if (car.controller === "player" || car.controller === "entering" || car.actualSpeed > 3) return false;
     car.controller = "entering"; car.actualSpeed = 0;
-    if (!car.model) { car.model = createCar(car.color.getHex()); this.scene.add(car.model.root); }
+    if (!car.model) { car.model = createCar(car.color.getHex(), car.type); this.scene.add(car.model.root); }
     car.model.root.userData.vehicle = car;
     car.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.syncModels(); return true;
@@ -438,6 +451,7 @@ export class Population {
   }
   syncModels() {
     for (const c of this.cars) if (c.model) {
+      if (c.model.root.userData.rider) c.model.root.userData.rider.visible = c.controller === "player";
       c.model.root.position.copy(c.body.translation()); c.model.root.quaternion.copy(c.body.rotation()); c.model.root.visible = c.body.isEnabled(); c.model.root.userData.vehicle = c;
     }
   }
