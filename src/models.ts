@@ -30,6 +30,9 @@ export function createCar(color = 0xc0753c, type: VehicleType = "sedan") {
     glass = mat(0x315252, 0.22),
     chrome = mat(0xb8b6a0, 0.32),
     rubber = mat(0x182323);
+  paint.metalness = .22;
+  chrome.metalness = .65;
+  glass.color.setHex(0x28444c);
   box(root, 1.9, 0.62, 4.25, 0, 0.73, 0, paint);
   box(root, 1.83, 0.18, 4.15, 0, 1.04, 0, paint);
   const cabinGeo = new T.BoxGeometry(1.65, 0.7, 2.3),

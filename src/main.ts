@@ -14,6 +14,7 @@ async function boot() {
       ? "已就绪 · 触屏操作"
       : "已就绪 · 键鼠操作";
     start.disabled = false;
+    (document.getElementById("start-coast") as HTMLButtonElement).disabled = false;
   } catch (e) {
     console.error(e);
     const fatal = document.getElementById("fatal")!;

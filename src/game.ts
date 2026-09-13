@@ -15,14 +15,16 @@ import { Inventory, WEAPONS, SHOP } from "./inventory";
 import { createShop, createExtraWeapons } from "./armory";
 import { Atlas } from "./atlas";
 import { CameraRig } from "./camera-rig";
-import { MobileControls, type MobileContextAction } from "./mobile-controls";
+import { MobileControls, hasTouchControls, type MobileContextAction } from "./mobile-controls";
 import { driveVehicle, VEHICLES } from "./vehicle-dynamics";
+import { CoastalAtmosphere, coastalArrival, SUN_DIRECTION } from "./coastal-atmosphere";
 const $ = (id: string) => document.getElementById(id)!;
 const UP = new T.Vector3(0, 1, 0),
   tmp = new T.Vector3();
 type Effect = { mesh: T.Mesh; life: number; velocity: T.Vector3 };
 export class Game {
   scene = new T.Scene();
+  atmosphere = new CoastalAtmosphere(this.scene);
   camera = new T.PerspectiveCamera(62, innerWidth / innerHeight, 0.08, 380);
   renderer: T.WebGLRenderer;
   physics = new R.World({ x: 0, y: -18, z: 0 });
@@ -72,7 +74,7 @@ export class Game {
   roadkills = 0;
   hits = 0;
   seed = "PALM-GROVE-2026";
-  sun = new T.DirectionalLight(0xffeed8, 2.6);
+  sun = new T.DirectionalLight(0xffd3a1, 2.6);
   effects: Effect[] = [];
   toastTime = 0;
   hitTime = 0;
@@ -105,18 +107,19 @@ export class Game {
       powerPreference: "high-performance",
     });
     this.renderer.setSize(innerWidth, innerHeight);
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    const touch = hasTouchControls();
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, touch ? 1.25 : 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFSoftShadowMap;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.outputColorSpace = T.SRGBColorSpace;
-    this.scene.background = new T.Color(0xbad9e7);
-    this.scene.fog = new T.Fog(0xbad9e7, 145, 300);
-    this.scene.add(new T.HemisphereLight(0xd5ecff, 0x68715b, 1.8));
+    this.scene.background = new T.Color(0xa9b9ac);
+    this.scene.fog = new T.Fog(0xa9b9ac, 145, 300);
+    this.scene.add(new T.HemisphereLight(0xc0dae8, 0x4b5948, 1.65));
     this.sun.position.set(-55, 38, 30);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(touch ? 1024 : 2048, touch ? 1024 : 2048);
     Object.assign(this.sun.shadow.camera, {
       left: -48,
       right: 48,
@@ -332,6 +335,15 @@ export class Game {
       this.start();
     });
     $("equipment-close").addEventListener("click", () => this.start());
+    $("start-coast").addEventListener("click", () => {
+      const seed = ($("seed") as HTMLInputElement).value.trim() || "PALM-GROVE-2026";
+      if (seed !== this.seed) { this.seed = seed; this.reset(); }
+      this.arriveAtCoast();
+      this.pause();
+      $("menu").hidden = true;
+      document.body.classList.remove("menu-open");
+      this.start();
+    });
     $("equipment-items").addEventListener("click", e => {
       const button = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-slot]");
       if (!button || this.mode !== "equipment") return;
@@ -545,6 +557,26 @@ export class Game {
       (e.mesh.material as T.Material).dispose();
     }
     this.effects = [];
+  }
+  arriveAtCoast() {
+    const p = coastalArrival(worldPlan(this.city.seed));
+    const position = new T.Vector3(p.x - this.city.offset.x, p.y + .9, p.z - this.city.offset.z);
+    this.playerBody.setTranslation(position, true);
+    this.playerBody.setNextKinematicTranslation(position);
+    const carPosition = position.clone().add(new T.Vector3(Math.cos(p.yaw) * 3, -.78, -Math.sin(p.yaw) * 3));
+    this.carBody.setTranslation(carPosition, true);
+    this.carBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.carBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.carYaw = p.yaw;
+    this.carBody.setRotation(new T.Quaternion().setFromAxisAngle(UP, p.yaw), true);
+    this.yaw = Math.PI * .75;
+    this.pitch = -.08;
+    this.city.update(position, true);
+    this.population.update(0, position, this.city.offset, this.city.seed, [carPosition]);
+    this.physics.step();
+    this.syncModels();
+    this.cameraRig.reset();
+    this.updateCamera(1);
   }
   activePosition() {
     const p = this.flying
@@ -1209,9 +1241,10 @@ export class Game {
       this.camera.lookAt(1, 1, -20);
     }
     const anchor = this.activePosition();
-    this.sun.position.copy(anchor).add(new T.Vector3(-55, 38, 30));
+    this.sun.position.copy(anchor).addScaledVector(SUN_DIRECTION, 82);
     this.sun.target.position.copy(anchor);
     this.city.updateLighting(this.camera.position);
+    this.atmosphere.update(this.camera, this.time, this.city.offset);
     this.renderer.render(this.scene, this.camera);
     this.hudTime += dt;
     if (this.hudTime > 0.1) {

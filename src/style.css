@@ -820,14 +820,14 @@ body.pointer-locked #game {
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 550px) {
   #menu {
     align-items: center;
-    padding: max(24px, env(safe-area-inset-top)) max(38px, env(safe-area-inset-right))
+    padding: max(62px, env(safe-area-inset-top)) max(38px, env(safe-area-inset-right))
       max(18px, env(safe-area-inset-bottom)) max(38px, env(safe-area-inset-left));
   }
   .menu-card {
     width: min(420px, 54vw);
   }
   .menu-card .eyebrow {
-    font-size: 8px;
+    display: none;
   }
   .menu-card h1 {
     margin: 10px 0;
@@ -849,6 +849,10 @@ body.pointer-locked #game {
   }
   button#start {
     padding: 11px 16px;
+  }
+  #start-coast {
+    padding: 8px 12px;
+    margin-top: 6px;
   }
   .menu-bottom {
     margin-top: 8px;

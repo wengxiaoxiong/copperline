@@ -4,6 +4,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { BLOCK, chunkAt, type WorldPlan } from "./generation";
 import { SIDEWALK } from "./parcels";
 import { box, mat } from "./models";
+import { coastalWater as water } from "./coastal-atmosphere";
 const landMat = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true });
 const asphalt = mat(0x394751), pavement = mat(0xc8cfce), stripe = mat(0xf2e7b6), stone = mat(0x9aa6aa);
 // Thin road paint and paving layers need a stable depth order at long range.
@@ -11,7 +12,6 @@ const asphalt = mat(0x394751), pavement = mat(0xc8cfce), stripe = mat(0xf2e7b6),
 Object.assign(asphalt, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 Object.assign(stripe, { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
 const orange = mat(0xc47746);
-const water = new T.MeshStandardMaterial({ color: 0x397e83, roughness: 0.3, metalness: 0.3 });
 export function buildLandscape(root: T.Group, bodies: R.RigidBody[], physics: R.World, plan: WorldPlan, cx: number, cz: number) {
   const ox = cx * BLOCK, oz = cz * BLOCK;
   const ribbons = new Map<T.Material, T.Mesh[]>();
