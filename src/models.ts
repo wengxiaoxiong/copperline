@@ -1,4 +1,5 @@
 import * as T from "three";
+import type { VehicleType } from "./vehicle-dynamics";
 export const boxGeo = new T.BoxGeometry(1, 1, 1);
 export function mat(color: number | string, roughness = 0.85) {
   return new T.MeshStandardMaterial({ color, roughness });
@@ -21,7 +22,8 @@ export function box(
   parent.add(m);
   return m;
 }
-export function createCar(color = 0xc0753c) {
+export function createCar(color = 0xc0753c, type: VehicleType = "sedan") {
+  if (type === "bicycle" || type === "motorcycle") return createBike(color, type === "motorcycle");
   const root = new T.Group(),
     paint = mat(color, 0.38),
     trim = mat(0x18272a, 0.55),
@@ -104,6 +106,33 @@ export function createCar(color = 0xc0753c) {
   root.add(door);
   box(door, 0.055, 0.58, 1.4, 0, 0.84, 0.7, paint);
   box(door, 0.065, 0.055, 0.2, -0.04, 1.05, 1.2, chrome);
+  if (type === "convertible") {
+    for (const child of root.children) if (child.position.y > 1.2) child.visible = false;
+    box(root, 1.55, .45, .07, 0, 1.3, -.8, glass);
+    for (const x of [-.45, .45]) { box(root, .55, .18, .6, x, 1.08, .1, trim); box(root, .55, .45, .14, x, 1.3, .4, trim); }
+  }
+  return { root, wheels, door };
+}
+function createBike(color: number, motor: boolean) {
+  const root = new T.Group(), door = new T.Group(), wheels: T.Group[] = [];
+  const paint = mat(color), metal = mat(0x485458), rubber = mat(0x172322);
+  root.add(door);
+  for (const z of [-.9, .9]) {
+    const wheel = new T.Group(); wheel.position.set(0, .43, z); root.add(wheel);
+    const tire = new T.Mesh(new T.TorusGeometry(.36, motor ? .1 : .045, 6, 16), rubber);
+    tire.rotation.y = Math.PI / 2; wheel.add(tire);
+    for (let i = 0; i < 6; i++) { const spoke = box(wheel, .025, .7, .025, 0, 0, 0, metal); spoke.rotation.x = i * Math.PI / 6; }
+    wheels.push(wheel);
+  }
+  const bar = (a: T.Vector3, b: T.Vector3) => { const d = b.clone().sub(a); const m = box(root, .06, d.length(), .06, 0, 0, 0, paint); m.position.copy(a).addScaledVector(d, .5); m.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()); };
+  const a = new T.Vector3(0, .43, .9), b = new T.Vector3(0, 1.1, .25), c = new T.Vector3(0, .4, 0), d = new T.Vector3(0, 1.15, -.65);
+  for (const [p, q] of [[a,b],[b,c],[c,a],[b,d],[c,d],[d,new T.Vector3(0,.43,-.9)]]) bar(p,q);
+  box(root, .4, .1, .4, 0, 1.15, .25, rubber);
+  box(root, .8, .06, .06, 0, 1.3, -.65, metal);
+  if (motor) { box(root, .4, .35, .65, 0, .7, 0, metal); box(root, .45, .27, .5, 0, 1, -.25, paint); }
+  const rider = createPerson(); rider.root.position.set(0, .32, .25); rider.root.rotation.x = -.18;
+  rider.update(0, 0, true); rider.root.visible = false;
+  root.add(rider.root); root.userData.rider = rider.root;
   return { root, wheels, door };
 }
 export function createHelicopter(color = 0x4f725e) {

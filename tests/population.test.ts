@@ -5,6 +5,20 @@ import R from '@dimforge/rapier3d-compat';
 import { Population } from '../src/population.ts';
 import { createCar } from '../src/models.ts';
 import { generateBlock, districtAt, worldPlan } from '../src/generation.ts';
+test('starter fleet has distinct rideable types and preserves identity across origin shifts', async () => {
+  await R.init(); const world = new R.World({x:0,y:0,z:0}), population = new Population(new T.Scene(), world);
+  population.addHomeCar(createCar(), 87);
+  assert.deepEqual(population.cars.map(c => c.type), ['sedan','bicycle','motorcycle','convertible']);
+  for (const vehicle of population.cars) {
+    const body = vehicle.body, before = body.translation();
+    assert.ok(population.beginEntry(vehicle)); population.takeControl(vehicle); population.leave(vehicle);
+    assert.equal(vehicle.body, body);
+    assert.equal(vehicle.model!.wheels.length, ['bicycle','motorcycle'].includes(vehicle.type) ? 2 : 4);
+    population.shift(new T.Vector3(72,0,0));
+    assert.ok(Math.abs(body.translation().x - (before.x - 72)) < .001);
+  }
+  population.reset(); assert.equal(population.cars.length,0); assert.equal(world.bodies.len(),0); world.free();
+});
 test('all eight geographic districts generate consistently, with varied building density', () => {
   const kinds = new Set<string>(), densities = new Set<number>();
   for (let x = -9; x < 9; x++) for (let z = -9; z < 9; z++) {

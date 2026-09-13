@@ -11,7 +11,19 @@
 body {
   margin: 0;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
+input, textarea { user-select: text; -webkit-user-select: text; }
+#scope-overlay { position: fixed; z-index: 5; pointer-events: none; width: 78vmin; height: 78vmin; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; border: 3px solid #101610; box-shadow: 0 0 0 150vmax #050b08ed; }
+#scope-overlay i, #scope-overlay b { position: absolute; display: block; background: #131913; }
+#scope-overlay i { width: 100%; height: 1px; top: 50%; }
+#scope-overlay b { height: 100%; width: 1px; left: 50%; }
+body.scoped #crosshair { visibility: hidden; }
+#mobile-scope { right: 0; bottom: 106px; }
+#mobile-controls button { -webkit-touch-callout: none; }
+.armory-card { touch-action: pan-y; }
 button,
 input {
   font: inherit;
@@ -581,9 +593,6 @@ body.pointer-locked #game {
 }
 
 @media (pointer: coarse) {
-  html,
-  body,
-  #app,
   #game {
     touch-action: none;
     overscroll-behavior: none;
@@ -675,7 +684,7 @@ body.pointer-locked #game {
     position: absolute;
     right: max(18px, env(safe-area-inset-right));
     bottom: max(18px, env(safe-area-inset-bottom));
-    width: 228px;
+    width: 196px;
     height: 174px;
     pointer-events: none;
   }
@@ -708,7 +717,7 @@ body.pointer-locked #game {
     bottom: 86px;
   }
   #mobile-secondary {
-    right: 151px;
+    right: 102px;
     bottom: 22px;
   }
   #interaction,
@@ -793,7 +802,7 @@ body.pointer-locked #game {
     height: 132px;
   }
   .mobile-actions {
-    transform: scale(0.9);
+    transform: scale(0.85);
     transform-origin: right bottom;
   }
   .menu-card h1 {

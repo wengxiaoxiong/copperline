@@ -15,6 +15,7 @@ import { createShop, createExtraWeapons } from "./armory";
 import { Atlas } from "./atlas";
 import { CameraRig } from "./camera-rig";
 import { MobileControls, type MobileContextAction } from "./mobile-controls";
+import { driveVehicle, VEHICLES } from "./vehicle-dynamics";
 const $ = (id: string) => document.getElementById(id)!;
 const UP = new T.Vector3(0, 1, 0),
   tmp = new T.Vector3();
@@ -53,6 +54,8 @@ export class Game {
   keys = new Set<string>();
   firing = false;
   aiming = false;
+  scopeHeld = false;
+  get scoped() { return this.mode === "playing" && !this.driving && !this.flying && !this.entry && this.inventory.spec.id === "sniper" && (this.aiming || this.scopeHeld); }
   yaw = 0;
   pitch = -0.12;
   carYaw = 0;
@@ -171,8 +174,9 @@ export class Game {
       canvas: this.canvas,
       onLook: (dx, dy) => {
         if (this.mode !== "playing") return;
-        this.yaw -= dx * 0.004;
-        this.pitch = T.MathUtils.clamp(this.pitch - dy * 0.0032, -0.7, 0.55);
+        const sensitivity = this.scoped ? .3 : 1;
+        this.yaw -= dx * 0.004 * sensitivity;
+        this.pitch = T.MathUtils.clamp(this.pitch - dy * 0.0032 * sensitivity, -0.7, 0.55);
       },
       onContext: () => {
         if (this.mode !== "playing") return;
@@ -200,10 +204,11 @@ export class Game {
       onFireChange: (active) => {
         const canFire = active && this.mode === "playing" && !this.driving && !this.flying && !this.entry;
         this.firing = canFire;
-        this.aiming = canFire;
+        this.aiming = canFire && this.inventory.spec.id !== "sniper";
       },
     });
     this.bind();
+    $("mobile-scope").addEventListener("click", () => { if (this.mode === "playing") this.scopeHeld = !this.scopeHeld; });
     this.syncModels();
     this.drawMap();
     this.animate();
@@ -235,7 +240,7 @@ export class Game {
       if (e.repeat) return;
       if (["Tab", "KeyI"].includes(e.code)) { e.preventDefault(); this.openEquipment("inventory"); return; }
       if (e.code === "KeyE" && this.nearShop()) { this.openEquipment("shop"); return; }
-      if (/^Digit[1-4]$/.test(e.code) && !this.driving && !this.flying && !this.entry) {
+      if (/^Digit[1-6]$/.test(e.code) && !this.driving && !this.flying && !this.entry) {
         const slot = Number(e.code.slice(-1)) - 1;
         if (this.inventory.equip(slot)) { this.syncWeapon(); this.notify(`已装备 ${this.inventory.spec.name}`); }
         else this.notify("尚未拥有 · 到复活点武器商店购买");
@@ -269,9 +274,10 @@ export class Game {
       }
       if (!Number.isFinite(e.movementX) || !Number.isFinite(e.movementY))
         return;
-      this.yaw -= T.MathUtils.clamp(e.movementX, -180, 180) * 0.002;
+      const sensitivity = this.scoped ? .3 : 1;
+      this.yaw -= T.MathUtils.clamp(e.movementX, -180, 180) * 0.002 * sensitivity;
       this.pitch = T.MathUtils.clamp(
-        this.pitch - T.MathUtils.clamp(e.movementY, -180, 180) * 0.0016,
+        this.pitch - T.MathUtils.clamp(e.movementY, -180, 180) * 0.0016 * sensitivity,
         -0.7,
         0.55,
       );
@@ -377,6 +383,7 @@ export class Game {
     $("lock-status").hidden = false;
   }
   beginPlaying() {
+    this.scopeHeld = false;
     this.lockPending = false;
     this.firing = false;
     this.aiming = false;
@@ -410,7 +417,7 @@ export class Game {
     this.updateHud();
     this.notify(this.mobile.enabled
       ? "左侧摇杆移动 · 右侧滑动视角 · 按住开火"
-      : "Tab 物品栏 · 1–4 切枪 · 出生点旁 E 买武器 · C 视角");
+      : "Tab 物品栏 · 1–6 切枪 · 出生点旁 E 买武器 · C 视角");
   }
   openMap() {
     this.mode = "map";
@@ -444,6 +451,7 @@ export class Game {
     this.shop.position.set(SHOP.x - this.city.offset.x, worldPlan(this.city.seed).surfaceAt(SHOP.x, SHOP.z), SHOP.z - this.city.offset.z);
   }
   syncWeapon() {
+    this.scopeHeld = false;
     this.firing = false; this.aiming = false;
     this.weapon.group.visible = this.inventory.selected === 0;
     this.extraWeapons.forEach((weapon, i) => weapon.group.visible = this.inventory.selected === i + 1);
@@ -732,14 +740,9 @@ export class Game {
           1,
         );
       const brake = this.keys.has("Space") || this.mobile.primaryHeld;
-      speed += throttle * (throttle * speed < 0 ? 32 : 18) * dt;
-      speed *= Math.exp(-(brake ? 3.2 : throttle === 0 ? 0.55 : 0.12) * dt);
-      speed = T.MathUtils.clamp(speed, -13, 45);
-      this.carYaw +=
-        steer *
-        T.MathUtils.clamp(speed / 8, -1, 1) *
-        (brake ? 1.65 : 1.05) *
-        dt;
+      const dynamics = driveVehicle(this.vehicle.type ?? "sedan", v, this.carYaw, throttle, steer, brake, dt);
+      speed = dynamics.speed;
+      this.carYaw = dynamics.yaw;
       const pos = this.carBody.translation(), plan = worldPlan(this.city.seed);
       const ground = (x: number, z: number) => plan.surfaceAt(x + this.city.offset.x, z + this.city.offset.z);
       const fx = -Math.sin(this.carYaw), fz = -Math.cos(this.carYaw), rx = Math.cos(this.carYaw), rz = -Math.sin(this.carYaw);
@@ -749,14 +752,11 @@ export class Game {
       this.carBody.setRotation(q, true);
       this.carBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
       forward.set(-Math.sin(this.carYaw), 0, -Math.cos(this.carYaw));
-      const lateral = new T.Vector3(v.x, 0, v.z)
-        .addScaledVector(forward, -(v.x * forward.x + v.z * forward.z))
-        .multiplyScalar(Math.exp(-dt * (brake ? 2.5 : 10)));
       this.carBody.setLinvel(
         {
-          x: forward.x * speed + lateral.x,
+          x: dynamics.x,
           y: v.y,
-          z: forward.z * speed + lateral.z,
+          z: dynamics.z,
         },
         true,
       );
@@ -863,7 +863,7 @@ export class Game {
     const p = this.playerBody.translation(),
       c = this.carBody.translation();
     this.person.root.position.set(p.x, p.y - 0.87, p.z);
-    this.person.root.visible = !this.driving && !this.flying && this.view === "third";
+    this.person.root.visible = !this.driving && !this.flying && this.view === "third" && !this.scoped;
     this.car.root.position.set(c.x, c.y, c.z);
     this.car.root.quaternion.copy(this.carBody.rotation());
     this.helicopter.root.position.copy(this.helicopterBody.translation());
@@ -880,12 +880,12 @@ export class Game {
       anchor,
       this.yaw,
       this.pitch,
-      this.aiming,
+      this.aiming || this.scoped,
       this.driving || this.flying,
-      this.view === "first",
+      this.view === "first" || this.scoped,
     );
     const desired = pose.position;
-    if (this.view === "third") {
+    if (this.view === "third" && !this.scoped) {
       const delta = desired.clone().sub(anchor),
         length = delta.length();
       delta.normalize();
@@ -930,7 +930,7 @@ export class Game {
     this.camera.lookAt(
       this.camera.position.clone().addScaledVector(pose.look, 60),
     );
-    this.camera.fov = pose.fov;
+    this.camera.fov = this.scoped ? 18 : pose.fov;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
   }
@@ -1013,6 +1013,10 @@ export class Game {
     this.toastTime = 3;
   }
   updateHud() {
+    $("scope-overlay").hidden = !this.scoped;
+    document.body.classList.toggle("scoped", this.scoped);
+    $("mobile-scope").hidden = this.inventory.spec.id !== "sniper" || this.driving || this.flying;
+    $("mobile-scope").textContent = this.scopeHeld ? "收镜" : "开镜";
     const p = this.activePosition().add(this.city.offset);
     const near = !this.driving && !this.flying
       ? this.population.nearestVehicle(this.activePosition())
@@ -1027,6 +1031,8 @@ export class Game {
       chunk: chunkAt(p.x, p.z), district: DISTRICT_NAMES[worldPlan(this.city.seed).district(p.x, p.z)],
       fps: this.fps, chunks: this.city.chunks.size,
     });
+    if (this.driving) $("equipment-label").textContent = VEHICLES[this.vehicle.type ?? "sedan"].name;
+    if (this.mobile.enabled) $("equipment-hint").textContent = this.driving ? "摇杆驾驶 · 按住手刹侧滑" : "按住开火并拖动瞄准 · 换弹";
     let contextAction: MobileContextAction = null;
     if (!this.entry) {
       if (this.flying) contextAction = "exit-helicopter";
