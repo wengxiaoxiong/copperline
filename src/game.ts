@@ -16,7 +16,7 @@ import { createShop, createExtraWeapons } from "./armory";
 import { Atlas } from "./atlas";
 import { CameraRig } from "./camera-rig";
 import { MobileControls, hasTouchControls, type MobileContextAction } from "./mobile-controls";
-import { driveVehicle, VEHICLES } from "./vehicle-dynamics";
+import { driveVehicle, alignVehicle, VEHICLES } from "./vehicle-dynamics";
 import { CoastalAtmosphere, coastalArrival, SUN_DIRECTION } from "./coastal-atmosphere";
 const $ = (id: string) => document.getElementById(id)!;
 const UP = new T.Vector3(0, 1, 0),
@@ -771,13 +771,7 @@ export class Game {
         this.yaw += delta * (1 - Math.exp(-dt * 1.8));
       }
     } else if (this.driving) {
-      const v = this.carBody.linvel(),
-        forward = new T.Vector3(
-          -Math.sin(this.carYaw),
-          0,
-          -Math.cos(this.carYaw),
-        );
-      let speed = v.x * forward.x + v.z * forward.z;
+      const v = this.carBody.linvel();
       const throttle =
         T.MathUtils.clamp(
           (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0) - this.mobile.movement.y,
@@ -792,26 +786,17 @@ export class Game {
         );
       const brake = this.keys.has("Space") || this.mobile.primaryHeld;
       const dynamics = driveVehicle(this.vehicle.type ?? "sedan", v, this.carYaw, throttle, steer, brake, dt);
-      speed = dynamics.speed;
       this.carYaw = dynamics.yaw;
-      const pos = this.carBody.translation(), plan = worldPlan(this.city.seed);
-      const ground = (x: number, z: number) => plan.surfaceAt(x + this.city.offset.x, z + this.city.offset.z);
-      const fx = -Math.sin(this.carYaw), fz = -Math.cos(this.carYaw), rx = Math.cos(this.carYaw), rz = -Math.sin(this.carYaw);
-      const pitch = Math.atan2(ground(pos.x + fx * 1.5, pos.z + fz * 1.5) - ground(pos.x - fx * 1.5, pos.z - fz * 1.5), 3);
-      const roll = Math.atan2(ground(pos.x + rx, pos.z + rz) - ground(pos.x - rx, pos.z - rz), 2);
-      const q = new T.Quaternion().setFromEuler(new T.Euler(pitch, this.carYaw, roll, "YXZ"));
-      this.carBody.setRotation(q, true);
-      this.carBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
-      forward.set(-Math.sin(this.carYaw), 0, -Math.cos(this.carYaw));
+      const vertical = alignVehicle(this.carBody, this.physics, this.carYaw, dt, { x: dynamics.x, y: v.y, z: dynamics.z });
       this.carBody.setLinvel(
         {
           x: dynamics.x,
-          y: v.y,
+          y: vertical,
           z: dynamics.z,
         },
         true,
       );
-      this.speed = speed;
+      this.speed = dynamics.speed;
       if (!this.keys.has("AltLeft") && !this.mobile.looking) {
         const delta = Math.atan2(
           Math.sin(this.carYaw - this.yaw),

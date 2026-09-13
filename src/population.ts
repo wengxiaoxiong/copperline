@@ -92,7 +92,9 @@ export class Population {
   vehicle(id: string, road: number, along: number, direction: number, parked: boolean, color: T.Color, type: VehicleType = "sedan"): Vehicle {
     const body = this.physics.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setCcdEnabled(true).setLinearDamping(0.18).setAngularDamping(4));
     const bike = type === "bicycle" || type === "motorcycle";
-    this.physics.createCollider(R.ColliderDesc.cuboid(bike ? .4 : .99, bike ? .65 : .84, bike ? 1.35 : 2.18).setTranslation(0, bike ? .65 : .84, 0).setMass(VEHICLES[type].mass).setFriction(0).setRestitution(0.08), body);
+    // Tire grip/drag belongs to driveVehicle; averaging with road friction
+    // would add chassis sliding friction and overwhelm the bicycle's drive.
+    this.physics.createCollider(R.ColliderDesc.cuboid(bike ? .4 : .99, bike ? .65 : .84, bike ? 1.35 : 2.18).setTranslation(0, bike ? .65 : .84, 0).setMass(VEHICLES[type].mass).setFriction(0).setFrictionCombineRule(R.CoefficientCombineRule.Min).setRestitution(0.08), body);
     const car: Vehicle = { type, kind: "vehicle", id, road, distance: along, direction, speed: 5.5, actualSpeed: 0, parked, driver: !parked, controller: parked ? "parked" : "traffic", color, body, claimed: false };
     this.cars.push(car); return car;
   }
