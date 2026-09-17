@@ -1,113 +1,111 @@
-# react-gta · Copperline
+# Copperline
 
-[简体中文](README.zh-CN.md) · [Legal & attribution notes](docs/LEGAL.md)
+**One more drive before sunset.**
 
-A small third-person browser sandbox with driving, shooting, collectible coins, and a seeded neighborhood that streams around the player. **Copperline** is the game's name; `react-gta` is the repository name.
+A single-player browser sandbox set in a low-poly coastal city. Walk through the neighborhood, borrow a set of wheels, fly over the harbor, or follow the coast until the city gives way to the sea. Warm evening light, weathered storefronts and palm-lined streets give it the feel of an early-2000s console game.
 
-The visual direction draws on early-2000s console games: warm evening light, weathered low-resolution textures, detached houses, palm trees, and a compact HUD. This is an independent prototype, not an official GTA product or a reproduction of an original game's assets or map.
+[Play in your browser](https://copperline-rosy.vercel.app/) · [简体中文](README.zh-CN.md) · [Development guide](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md)
 
-> **Stack note:** despite the repository name, the current implementation uses **Three.js + TypeScript + Vite + Rapier**, with HTML/CSS for the interface. React is not currently a dependency.
+![Copperline: a player and an orange sedan beside the sea at sunset](docs/screenshots/coast.png)
 
-![Copperline running in a browser](docs/screenshots/menu.png)
+*Rendered in Ego Lite from the local development build. The coastal scene is held still with the pause overlay hidden for the screenshot; this is the actual WebGL scene, not concept art.*
 
-*Actual browser screenshot of this project's title screen and rendered neighborhood. It is not a screenshot from GTA or a generated promotional image.*
+## A city to wander through
 
-## Play locally
+- **Choose your ride.** Drive a sedan or convertible, ride a motorcycle or bicycle, or take the helicopter above the rooftops. Take over moving traffic and return to the same vehicle after stepping out. Decorative bicycles in street racks are separate, static props.
+- **Explore beyond the main street.** A seeded world connects residential blocks, shops, old town, downtown, harbor, riverside, hills and coast with roads and bridges. Walk into houses, shops and apartment lobbies through their open doors.
+- **Find your own route.** Use the minimap or open the city atlas to pan, zoom and set a destination on the road network. Start in the neighborhood or jump straight to the sunset coast from the title screen.
+- **Collect and equip.** Pick up coins on foot or while driving, then visit the weapon shop. Six weapons span rifle, pistol, SMG, shotgun, sniper rifle and light machine gun, with separate magazines and reload progress.
+- **Stir up the street.** Pedestrians react to conflict, including gunfire, attacks and vehicle theft. Hostile NPCs can shoot back; defeated NPCs drop coins. Switch between first- and third-person views, shoulder aim or use the sniper scope.
+- **Play with a keyboard or touch.** Desktop uses mouse aiming; mobile has a movement joystick, camera gestures, held fire, a scope toggle and contextual vehicle/shop actions.
 
-Requires Node.js **22.13+**, npm, and a modern desktop or mobile browser with WebGL 2.
+![Copperline title screen with the neighborhood, traffic and helicopter](docs/screenshots/menu.png)
+
+*Title screen captured in Ego Lite with the default seed, `PALM-GROVE-2026`. The game interface is currently in Chinese.*
+
+## Run locally
+
+Use **Node.js 22.13+**, npm and a modern browser with **WebGL 2**. Chrome or Edge is recommended for desktop play. No backend, account or API keys are required.
 
 ```sh
-git clone https://github.com/wengxiaoxiong/react-gta.git
-cd react-gta
+git clone https://github.com/wengxiaoxiong/copperline.git
+cd copperline
 npm ci
 npm run dev
 ```
 
-Open the address printed by Vite, normally `http://localhost:5173/`. Click **进入街区** to start. The current game interface is in Chinese.
+Open the URL printed by Vite, normally `http://localhost:5173/`.
 
-On desktop, the game starts after the browser grants **Pointer Lock**, which hides the cursor and enables relative aiming. Mobile play uses on-screen controls and does not request Pointer Lock.
+1. Keep the default world seed or enter your own before starting.
+2. Choose **进入街区** (enter the neighborhood) or **海滨漫游** (coastal roam).
+3. On desktop, allow the browser to lock the mouse. If it fails, use the retry button or open the page directly in Chrome or Edge. Press **Esc** to release the cursor and pause.
+
+On a phone, use landscape orientation. For local testing, connect to the same network as the development machine and open Vite's Network URL. Touch controls do not require mouse lock.
 
 ## Controls
 
-| Action | Control |
+| Action | Desktop |
 | --- | --- |
-| Move / accelerate, reverse, steer | WASD |
-| Sprint (about 2.5× walking speed) | Shift |
-| Jump / handbrake while driving | Space |
-| Enter, exit or take over a nearby car | F; wait for low speed before entering, stop before exiting |
-| Fire / shoulder aim | Left / right mouse button |
-| Reload | R |
-| Pause / release mouse | Esc |
-| Return to a nearby road | V |
-| World map | M; wheel to zoom, drag to pan, click a road to navigate |
-| First-/third-person view | C |
-| Mute / unmute | N |
+| Walk / drive / steer the helicopter | **W A S D** |
+| Sprint on foot | **Shift** |
+| Jump / vehicle handbrake / helicopter climb | **Space** |
+| Helicopter descent | **Shift** |
+| Enter, exit or take over a nearby vehicle | **F**; slow down before entering and stop before exiting |
+| Fire / aim or sniper scope | **Left / right mouse button** |
+| Reload | **R** |
+| Equip an owned weapon | **1–6** |
+| Inventory | **Tab** or **I** |
+| Weapon shop, when nearby | **E** |
+| First-/third-person view | **C** |
+| City atlas | **M**; drag to pan, scroll to zoom, click a road to navigate |
+| Recover to a nearby road | **V** |
+| Mute / unmute | **N** |
+| Pause / release cursor | **Esc** |
 
-Mobile play is designed for landscape orientation. The left joystick controls walking, driving and flight; dragging the open right side of the scene turns the camera. Hold **Fire** to shoulder-aim and shoot. A contextual button appears near cars, the helicopter and the weapon shop, and changes to Exit while driving or flying. The two smaller actions switch between jump/reload, handbrake, and helicopter climb/descent.
+On touch devices, move with the **left joystick** and drag the open **right side** to look around. Hold **开火** to aim and fire; **开镜** toggles the sniper scope when equipped. Nearby vehicles and the weapon shop show a contextual action. Smaller buttons change with the current mode: jump/reload, handbrake, or helicopter climb/descent.
 
-The orange sedan is ahead of the spawn point. Walk or drive through gold coins to collect them. Defeated pedestrians also spill coins, so drive over or walk through the drop before it streams out. Red roadside practice targets take three ordinary hits. The MR-17 has a 30-round magazine and unlimited reserve ammunition, with a reload delay.
+Opening the map, inventory or pause screen stops gameplay. Returning on desktop requires mouse lock again.
 
-The street is hostile: pedestrians within about 34 metres charge the player and land melee hits, draining the health bar above the ammo bar. At zero health the player is returned to a nearby road with health restored. Traffic and the player's own car will run pedestrians down, which kills them and drops their loot.
+## Under the hood
 
-## What's implemented
+**TypeScript · Three.js · Rapier WASM · Vite · HTML/CSS**
 
-- Third-person movement, camera obstruction, shoulder aiming and vehicle follow camera, with keyboard/mouse controls on desktop and joystick, look gestures, fire and contextual actions on touch devices.
-- Nearby vehicles share one ownership and driving model. Taking over traffic opens a door and makes its driver flee, preserving the vehicle body, paint and parked position.
-- Pedestrians react to gunshots, take damage and fall when defeated, dropping collectible coins. Nearby pedestrians turn hostile, chase the player and attack in melee; a moving vehicle knocks them down on contact. Camera and muzzle rays resolve the closest obstruction, including traffic and pedestrians.
-- A seeded coast, river and hills determine connected roads, bridges, roadside building placement and eight districts. Landmarks include a water tower, lighthouse, harbor crane and plaza.
-- 72-meter streaming tiles with a nearby 7 × 7 window. Curved roads cross tile boundaries; terrain and bridge colliders match road elevation.
-- A shared world atlas and minimap, with zoom, pan, player and driven-vehicle markers, and road-based navigation. Opening the atlas pauses gameplay; returning requests pointer lock again.
-- Changed NPCs, driven vehicles, collected coins and defeated targets persist during a run, including across streaming and origin shifts. Restarting or refreshing resets progress.
+The city, characters and vehicles are largely built from procedural geometry. A shared `WorldPlan` supplies terrain, roads, traffic and maps. The renderer streams a nearby **7 × 7** window of **72-meter** chunks, while origin shifts keep rendering and physics coordinates close to the player. Physics advances at a fixed 60 Hz; seeded generation is reproducible, but the entire game simulation is not deterministic.
 
-## Scope and limitations
+The npm package still has the historical name `react-gta`; the application does **not** use React.
 
-The current seed generates one coastal city roughly 1.5 km wide. Terrain continues outside the city, but its road network is bounded. Police pursuit, multiplayer, interiors, story missions, swimming and in-car shooting are not implemented. Entering deep water recovers the player to a nearby road.
+| Area | Source |
+| --- | --- |
+| Startup and session orchestration | [`main.ts`](src/main.ts), [`game.ts`](src/game.ts) |
+| World planning and land use | [`generation.ts`](src/generation.ts), [`parcels.ts`](src/parcels.ts) |
+| Terrain, buildings and streaming | [`world.ts`](src/world.ts), [`landscape.ts`](src/landscape.ts), [`interiors.ts`](src/interiors.ts) |
+| NPCs, vehicle ownership and driving | [`population.ts`](src/population.ts), [`vehicle-dynamics.ts`](src/vehicle-dynamics.ts) |
+| Weapons, inventory and hit detection | [`inventory.ts`](src/inventory.ts), [`combat.ts`](src/combat.ts), [`targeting.ts`](src/targeting.ts) |
+| Camera, maps, touch and UI | [`camera-rig.ts`](src/camera-rig.ts), [`atlas.ts`](src/atlas.ts), [`mobile-controls.ts`](src/mobile-controls.ts), [`hud.ts`](src/hud.ts), [`equipment-panel.ts`](src/equipment-panel.ts) |
 
-Traffic follows the road graph, brakes and waits at intersections. Character animation and vehicle handling remain simplified. The clock and decorative bars are visual elements. M now opens the map; mute moved to N.
+See the [architecture guide](docs/ARCHITECTURE.md) for module ownership, coordinates and resource lifecycles, and [AGENTS.md](AGENTS.md) for contribution conventions.
 
-Nearby geometry is streamed out; driven vehicles and changed NPC records accumulate during the run. Unlimited session memory is not guaranteed. Gameplay needs no backend; external fonts have local fallbacks.
-
-## Build and validation
+## Build and check
 
 ```sh
-npm test
-npm run build
-npm run preview
+npm test          # Node test runner + tsx
+npm run build    # Strict TypeScript check, then Vite build
+npm run preview  # Serve the production build locally
 ```
 
-`npm run build` runs TypeScript checking and creates `dist/` for static hosting.
+The build produces `dist/` for static hosting. Regression tests cover world generation, roads and collisions, building entry, vehicle physics and takeover, combat, inventory, camera behavior and input state transitions. Vite currently warns about the large JavaScript bundle, which includes Rapier WASM.
 
-33 automated tests cover deterministic generation, roads and routing, bridge collision, weapons and NPCs, vehicle takeover, map pause, pointer-lock failure/retry, camera stability, joystick math and touch startup without Pointer Lock.
+Browser scenario scripts and the dev-only `window.__game` handle are documented in the [development guide](docs/DEVELOPMENT.md). Those scripts can reset or reposition the session. Automated tests and staged screenshots are not a substitute for a full keyboard/mouse playthrough, mobile device testing or sustained frame-rate measurements.
 
-`scripts/city-scenario.js` runs actual Game methods and Rapier physics through the dev-only `window.__game` handle. `cityScenario(game)` checks entry, driving, exit, takeover, driver flight, shooting and navigation. `roadDrivingScenario(game)` traverses a 155 m slope and 139 m bridge. `cityRouteScenario(game)` advances a route in batches; pass `true` on subsequent calls until `done: true`. A roughly 1.55 km residential-to-harbor-to-coast route passed with 49 nearby chunks. Ordinary traffic is cleared for this road-clearance scenario.
+## Prototype boundaries
 
-These developer scripts reposition the scene. They are **not real-time FPS or complete keyboard/mouse acceptance tests**. The embedded browser rejected pointer lock; its failure/retry handling is covered, and Chrome or Edge is recommended for play. The older `scripts/browser-scenario.js` retains checks for the previous grid world and does not apply to this road network.
+- **Single player, session only.** No multiplayer or cross-refresh saves. Some changes survive chunk unloading within a run; refreshing or restarting resets progress. Respawning preserves collected money and owned weapons.
+- **A bounded city.** The road network spans roughly two kilometers. Terrain can continue beyond it; the roads do not extend forever. Offshore island silhouettes are scenery, not destinations.
+- **Simplified simulation.** Handling and animation are experimental. No police pursuit, story campaign, swimming or in-vehicle shooting. Deep water recovers the player to a road. Warehouses remain closed; markets, courts and traffic lights are scenery rather than complete gameplay systems.
+- **Performance depends on the device.** Streaming limits nearby geometry, but claimed vehicles and changed NPC records can accumulate during a session. The on-screen clock is decorative, not a day/night cycle.
 
-## Project layout
+## Credits and licensing
 
-```text
-src/game.ts                 Input, physics, gameplay and HUD
-src/mobile-controls.ts      Touch joystick, look gestures and contextual action buttons
-src/camera-rig.ts           Camera boom, aim transition and recoil
-src/world.ts                Tile rendering, streaming and resource lifecycle
-src/generation.ts           Geography, road graph, lots and navigation
-src/landscape.ts            Terrain, bridges, landmarks and colliders
-src/population.ts           NPC state and vehicle ownership
-src/atlas.ts                World map, minimap and navigation UI
-src/models.ts               Procedural character and vehicle
-src/retro.ts                Surface textures and palm geometry
-src/combat.ts               Weapon state and timing
-src/vendor/blackwater/      Attributed upstream weapon and audio code
-tests/                      Automated regression tests
-docs/screenshots/           Screenshots of this project
-```
+Weapon geometry, effects and audio include adaptations from [BLACKWATER — Silent Harbor](https://github.com/Hiraeth010/blackwater), under its retained [MIT license](src/vendor/blackwater/LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and adaptation details. Three.js is MIT-licensed; Rapier is Apache-2.0-licensed. Other dependencies retain their own terms.
 
-## Attribution, licensing and legal status
-
-- [BLACKWATER — Silent Harbor](https://github.com/Hiraeth010/blackwater): weapon geometry, effects and audio under MIT. Its copyright and license are retained in [`src/vendor/blackwater/LICENSE`](src/vendor/blackwater/LICENSE). Adaptations are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-- Three.js is MIT-licensed; Rapier is Apache-2.0-licensed. Dependencies retain their own terms.
-- The city, vehicle and character are generated by this project's code. No extracted GTA models, textures, music, dialogue, maps or original-game screenshots are bundled.
-- This project is not affiliated with, endorsed by, or sponsored by Rockstar Games or Take-Two Interactive. Their names and game titles are used only to describe the reference context; third-party trademarks remain with their respective owners.
-- **No project-wide open-source license has been selected for the project's original code.** Repository visibility does not grant a license. The retained third-party licenses continue to apply to their respective components.
-
-The repository name and similarity to a recognizable game can still create legal risk. A disclaimer or noncommercial release does not eliminate it. See the [bilingual legal notes](docs/LEGAL.md), and obtain jurisdiction-specific advice before a commercial release.
+Copperline is an independent prototype, unaffiliated with Rockstar Games or Take-Two Interactive. No extracted GTA assets or original-game screenshots are bundled. **No project-wide license has been selected for the original code**; public visibility does not itself grant reuse rights. See the [legal and attribution notes](docs/LEGAL.md).
